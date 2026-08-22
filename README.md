@@ -36,6 +36,7 @@ To run it on your own files, you can manually run the pipeline like this:
 2. Set your python path: `set PYTHONPATH=%PYTHONPATH%;%CD%\src`
 3. Run the script: `python src\pipeline.py path\to\your_file.c --no-carbon --model results\pyg_gnn_v9\best_pyg_model.pt`
 
+
 ## Folder structure
 - `src/` holds the backend code like the Flask app, pipeline, and models.
 - `data/` and `dataset/` are where the graphs and datasets live.
