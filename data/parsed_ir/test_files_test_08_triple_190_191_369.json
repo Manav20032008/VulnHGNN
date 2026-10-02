@@ -1,0 +1,192 @@
+{
+  "source_file": "test_files/test_08_triple_190_191_369.c",
+  "functions": [
+    {
+      "name": "math_chaos",
+      "return_type": "void",
+      "params": [
+        "i32 %0",
+        "i32 %1",
+        "i32 %2"
+      ],
+      "is_declaration": false,
+      "blocks": [
+        {
+          "label": "entry",
+          "instructions": [
+            {
+              "text": "%4 = alloca i32, align 4",
+              "opcode": "alloca"
+            },
+            {
+              "text": "%5 = alloca i32, align 4",
+              "opcode": "alloca"
+            },
+            {
+              "text": "%6 = alloca i32, align 4",
+              "opcode": "alloca"
+            },
+            {
+              "text": "%7 = alloca i32, align 4",
+              "opcode": "alloca"
+            },
+            {
+              "text": "%8 = alloca i32, align 4",
+              "opcode": "alloca"
+            },
+            {
+              "text": "%9 = alloca i32, align 4",
+              "opcode": "alloca"
+            },
+            {
+              "text": "store i32 %0, ptr %4, align 4",
+              "opcode": "store"
+            },
+            {
+              "text": "call void @llvm.dbg.declare(metadata ptr %4, metadata !DIExpression())",
+              "opcode": "call"
+            },
+            {
+              "text": "store i32 %1, ptr %5, align 4",
+              "opcode": "store"
+            },
+            {
+              "text": "call void @llvm.dbg.declare(metadata ptr %5, metadata !DIExpression())",
+              "opcode": "call"
+            },
+            {
+              "text": "store i32 %2, ptr %6, align 4",
+              "opcode": "store"
+            },
+            {
+              "text": "call void @llvm.dbg.declare(metadata ptr %6, metadata !DIExpression())",
+              "opcode": "call"
+            },
+            {
+              "text": "call void @llvm.dbg.declare(metadata ptr %7, metadata !DIExpression())",
+              "opcode": "call"
+            },
+            {
+              "text": "%10 = load i32, ptr %4, align 4",
+              "opcode": "load"
+            },
+            {
+              "text": "%11 = add nsw i32 %10, 1000000",
+              "opcode": "add"
+            },
+            {
+              "text": "store i32 %11, ptr %7, align 4",
+              "opcode": "store"
+            },
+            {
+              "text": "call void @llvm.dbg.declare(metadata ptr %8, metadata !DIExpression())",
+              "opcode": "call"
+            },
+            {
+              "text": "%12 = load i32, ptr %5, align 4",
+              "opcode": "load"
+            },
+            {
+              "text": "%13 = sub nsw i32 %12, 1000000",
+              "opcode": "sub"
+            },
+            {
+              "text": "store i32 %13, ptr %8, align 4",
+              "opcode": "store"
+            },
+            {
+              "text": "call void @llvm.dbg.declare(metadata ptr %9, metadata !DIExpression())",
+              "opcode": "call"
+            },
+            {
+              "text": "%14 = load i32, ptr %7, align 4",
+              "opcode": "load"
+            },
+            {
+              "text": "%15 = load i32, ptr %6, align 4",
+              "opcode": "load"
+            },
+            {
+              "text": "%16 = sdiv i32 %14, %15",
+              "opcode": "sdiv"
+            },
+            {
+              "text": "store i32 %16, ptr %9, align 4",
+              "opcode": "store"
+            },
+            {
+              "text": "%17 = load i32, ptr %7, align 4",
+              "opcode": "load"
+            },
+            {
+              "text": "%18 = load i32, ptr %8, align 4",
+              "opcode": "load"
+            },
+            {
+              "text": "%19 = load i32, ptr %9, align 4",
+              "opcode": "load"
+            },
+            {
+              "text": "%20 = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %17, i32 noundef %18, i32 noundef %19)",
+              "opcode": "call"
+            },
+            {
+              "text": "ret void",
+              "opcode": "ret"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "llvm.dbg.declare",
+      "return_type": "void",
+      "params": [
+        "metadata",
+        "metadata",
+        "metadata"
+      ],
+      "is_declaration": true,
+      "blocks": []
+    },
+    {
+      "name": "printf",
+      "return_type": "i32",
+      "params": [
+        "ptr",
+        "..."
+      ],
+      "is_declaration": true,
+      "blocks": []
+    },
+    {
+      "name": "main",
+      "return_type": "i32",
+      "params": [],
+      "is_declaration": false,
+      "blocks": [
+        {
+          "label": "entry",
+          "instructions": [
+            {
+              "text": "%1 = alloca i32, align 4",
+              "opcode": "alloca"
+            },
+            {
+              "text": "store i32 0, ptr %1, align 4",
+              "opcode": "store"
+            },
+            {
+              "text": "call void @math_chaos(i32 noundef 2147483637, i32 noundef -2147483638, i32 noundef 0)",
+              "opcode": "call"
+            },
+            {
+              "text": "ret i32 0",
+              "opcode": "ret"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

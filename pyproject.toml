@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vulnhgnn-securecc"
+version = "2.0.0"
+description = "VulnHGNN 2.0 local-first secure C/C++ security toolchain"
+requires-python = ">=3.12"
+
+[project.scripts]
+securecc = "src.V2.securecc.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+namespaces = true

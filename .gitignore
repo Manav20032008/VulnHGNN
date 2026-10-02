@@ -1,25 +1,38 @@
-# Virtual Environment
-venv/
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 
-# IDEs
+# Virtual environments
+venv/
+.venv/
+env/
+Env/
+
+# Packaging
+*.egg-info/
+build/
+dist/
+
+# Test / tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Generated SecureCC artifacts
+build/
+*.securecc.json
+
+# OS/editor files
+.DS_Store
+Thumbs.db
 .vscode/
 .idea/
 
-# Data, datasets, databases, and cached stuff
-data/
-dataset/
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
 
-# Model outputs, checkpoints, and metrics
-results/
-
-# Temporary / Scratch files generated during dev
-_graph_names.txt
-failed_compilations.txt
-pipeline_out.txt
-pipeline_test_output.txt
-graph_sample.png
-request_overflow.json
-remove_comments_script.py
+*.pkl
