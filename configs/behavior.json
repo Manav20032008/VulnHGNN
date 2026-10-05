@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "tests": {
+    "test_01_clean.c": {
+      "stdin": "",
+      "stdout": "Result: 1\nPointer value: 100\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+
+    "test_02_cwe190.c": {
+      "stdin": "",
+      "stdout": "Result: 0\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+
+    "test_03_cwe191.c": {
+      "stdin": "",
+      "stdout": "Result: 0\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+
+    "test_04_cwe369.c": {
+      "stdin": "",
+      "stdout": "Result: 10\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+
+    "test_05_cwe476.c": {
+      "stdin": "",
+      "stdout": "ID: 1, Name: User Record\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+
+    "test_06_dual_190_191.c": {
+      "stdin": "",
+      "stdout": "O: 0, U: 0\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+
+    "test_07_dual_369_476.c": {
+      "stdin": "",
+      "stdout": "Value: 500\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+
+    "test_08_triple_190_191_369.c": {
+      "stdin": "",
+      "stdout": "0 0 0\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+
+    "test_09_triple_191_369_476.c": {
+      "stdin": "",
+      "stdout": "Result: 0\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+
+    "test_10_all_vulnerabilities.c": {
+      "stdin": "",
+      "stdout": "V1: 0, V2: 0, V3: 0\n",
+      "stderr": "",
+      "exit_code": 0
+    }
+  }
+}

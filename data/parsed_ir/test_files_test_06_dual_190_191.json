@@ -1,0 +1,151 @@
+{
+  "source_file": "test_files/test_06_dual_190_191.c",
+  "functions": [
+    {
+      "name": "complex_math",
+      "return_type": "void",
+      "params": [
+        "i32 %0",
+        "i32 %1"
+      ],
+      "is_declaration": false,
+      "blocks": [
+        {
+          "label": "entry",
+          "instructions": [
+            {
+              "text": "%3 = alloca i32, align 4",
+              "opcode": "alloca"
+            },
+            {
+              "text": "%4 = alloca i32, align 4",
+              "opcode": "alloca"
+            },
+            {
+              "text": "%5 = alloca i32, align 4",
+              "opcode": "alloca"
+            },
+            {
+              "text": "%6 = alloca i32, align 4",
+              "opcode": "alloca"
+            },
+            {
+              "text": "store i32 %0, ptr %3, align 4",
+              "opcode": "store"
+            },
+            {
+              "text": "call void @llvm.dbg.declare(metadata ptr %3, metadata !DIExpression())",
+              "opcode": "call"
+            },
+            {
+              "text": "store i32 %1, ptr %4, align 4",
+              "opcode": "store"
+            },
+            {
+              "text": "call void @llvm.dbg.declare(metadata ptr %4, metadata !DIExpression())",
+              "opcode": "call"
+            },
+            {
+              "text": "call void @llvm.dbg.declare(metadata ptr %5, metadata !DIExpression())",
+              "opcode": "call"
+            },
+            {
+              "text": "%7 = load i32, ptr %3, align 4",
+              "opcode": "load"
+            },
+            {
+              "text": "%8 = mul nsw i32 %7, 100",
+              "opcode": "mul"
+            },
+            {
+              "text": "store i32 %8, ptr %5, align 4",
+              "opcode": "store"
+            },
+            {
+              "text": "call void @llvm.dbg.declare(metadata ptr %6, metadata !DIExpression())",
+              "opcode": "call"
+            },
+            {
+              "text": "%9 = load i32, ptr %4, align 4",
+              "opcode": "load"
+            },
+            {
+              "text": "%10 = sub nsw i32 %9, 100000",
+              "opcode": "sub"
+            },
+            {
+              "text": "store i32 %10, ptr %6, align 4",
+              "opcode": "store"
+            },
+            {
+              "text": "%11 = load i32, ptr %5, align 4",
+              "opcode": "load"
+            },
+            {
+              "text": "%12 = load i32, ptr %6, align 4",
+              "opcode": "load"
+            },
+            {
+              "text": "%13 = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %11, i32 noundef %12)",
+              "opcode": "call"
+            },
+            {
+              "text": "ret void",
+              "opcode": "ret"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "llvm.dbg.declare",
+      "return_type": "void",
+      "params": [
+        "metadata",
+        "metadata",
+        "metadata"
+      ],
+      "is_declaration": true,
+      "blocks": []
+    },
+    {
+      "name": "printf",
+      "return_type": "i32",
+      "params": [
+        "ptr",
+        "..."
+      ],
+      "is_declaration": true,
+      "blocks": []
+    },
+    {
+      "name": "main",
+      "return_type": "i32",
+      "params": [],
+      "is_declaration": false,
+      "blocks": [
+        {
+          "label": "entry",
+          "instructions": [
+            {
+              "text": "%1 = alloca i32, align 4",
+              "opcode": "alloca"
+            },
+            {
+              "text": "store i32 0, ptr %1, align 4",
+              "opcode": "store"
+            },
+            {
+              "text": "call void @complex_math(i32 noundef 1073741823, i32 noundef -2147483598)",
+              "opcode": "call"
+            },
+            {
+              "text": "ret i32 0",
+              "opcode": "ret"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

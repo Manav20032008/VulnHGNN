@@ -1,0 +1,209 @@
+{
+  "source_file": "test_files/test_09_triple_191_369_476.c",
+  "functions": [
+    {
+      "name": "risky_logic",
+      "return_type": "void",
+      "params": [
+        "i32 %0",
+        "i32 %1"
+      ],
+      "is_declaration": false,
+      "blocks": [
+        {
+          "label": "entry",
+          "instructions": [
+            {
+              "text": "%3 = alloca i32, align 4",
+              "opcode": "alloca"
+            },
+            {
+              "text": "%4 = alloca i32, align 4",
+              "opcode": "alloca"
+            },
+            {
+              "text": "%5 = alloca ptr, align 8",
+              "opcode": "alloca"
+            },
+            {
+              "text": "%6 = alloca i32, align 4",
+              "opcode": "alloca"
+            },
+            {
+              "text": "%7 = alloca i32, align 4",
+              "opcode": "alloca"
+            },
+            {
+              "text": "store i32 %0, ptr %3, align 4",
+              "opcode": "store"
+            },
+            {
+              "text": "call void @llvm.dbg.declare(metadata ptr %3, metadata !DIExpression())",
+              "opcode": "call"
+            },
+            {
+              "text": "store i32 %1, ptr %4, align 4",
+              "opcode": "store"
+            },
+            {
+              "text": "call void @llvm.dbg.declare(metadata ptr %4, metadata !DIExpression())",
+              "opcode": "call"
+            },
+            {
+              "text": "call void @llvm.dbg.declare(metadata ptr %5, metadata !DIExpression())",
+              "opcode": "call"
+            },
+            {
+              "text": "%8 = call noalias ptr @malloc(i64 noundef 4) #5",
+              "opcode": "call"
+            },
+            {
+              "text": "store ptr %8, ptr %5, align 8",
+              "opcode": "store"
+            },
+            {
+              "text": "%9 = load i32, ptr %3, align 4",
+              "opcode": "load"
+            },
+            {
+              "text": "%10 = load ptr, ptr %5, align 8",
+              "opcode": "load"
+            },
+            {
+              "text": "store i32 %9, ptr %10, align 4",
+              "opcode": "store"
+            },
+            {
+              "text": "call void @llvm.dbg.declare(metadata ptr %6, metadata !DIExpression())",
+              "opcode": "call"
+            },
+            {
+              "text": "%11 = load ptr, ptr %5, align 8",
+              "opcode": "load"
+            },
+            {
+              "text": "%12 = load i32, ptr %11, align 4",
+              "opcode": "load"
+            },
+            {
+              "text": "%13 = sub nsw i32 %12, 2147483647",
+              "opcode": "sub"
+            },
+            {
+              "text": "store i32 %13, ptr %6, align 4",
+              "opcode": "store"
+            },
+            {
+              "text": "call void @llvm.dbg.declare(metadata ptr %7, metadata !DIExpression())",
+              "opcode": "call"
+            },
+            {
+              "text": "%14 = load i32, ptr %6, align 4",
+              "opcode": "load"
+            },
+            {
+              "text": "%15 = load i32, ptr %4, align 4",
+              "opcode": "load"
+            },
+            {
+              "text": "%16 = sdiv i32 %14, %15",
+              "opcode": "sdiv"
+            },
+            {
+              "text": "store i32 %16, ptr %7, align 4",
+              "opcode": "store"
+            },
+            {
+              "text": "%17 = load i32, ptr %7, align 4",
+              "opcode": "load"
+            },
+            {
+              "text": "%18 = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %17)",
+              "opcode": "call"
+            },
+            {
+              "text": "%19 = load ptr, ptr %5, align 8",
+              "opcode": "load"
+            },
+            {
+              "text": "call void @free(ptr noundef %19) #6",
+              "opcode": "call"
+            },
+            {
+              "text": "ret void",
+              "opcode": "ret"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "llvm.dbg.declare",
+      "return_type": "void",
+      "params": [
+        "metadata",
+        "metadata",
+        "metadata"
+      ],
+      "is_declaration": true,
+      "blocks": []
+    },
+    {
+      "name": "malloc",
+      "return_type": "ptr",
+      "params": [
+        "i64"
+      ],
+      "is_declaration": true,
+      "blocks": []
+    },
+    {
+      "name": "printf",
+      "return_type": "i32",
+      "params": [
+        "ptr",
+        "..."
+      ],
+      "is_declaration": true,
+      "blocks": []
+    },
+    {
+      "name": "free",
+      "return_type": "void",
+      "params": [
+        "ptr"
+      ],
+      "is_declaration": true,
+      "blocks": []
+    },
+    {
+      "name": "main",
+      "return_type": "i32",
+      "params": [],
+      "is_declaration": false,
+      "blocks": [
+        {
+          "label": "entry",
+          "instructions": [
+            {
+              "text": "%1 = alloca i32, align 4",
+              "opcode": "alloca"
+            },
+            {
+              "text": "store i32 0, ptr %1, align 4",
+              "opcode": "store"
+            },
+            {
+              "text": "call void @risky_logic(i32 noundef 10, i32 noundef 0)",
+              "opcode": "call"
+            },
+            {
+              "text": "ret i32 0",
+              "opcode": "ret"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

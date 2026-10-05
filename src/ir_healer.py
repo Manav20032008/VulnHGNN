@@ -1,479 +1,646 @@
 """
-ir_healer.py — Rule-based self-healing module operating on LLVM IR.
+ir_healer.py — deterministic LLVM-IR remediation for VulnHGNN 2.0.
 
-Applies CWE-specific repair templates directly to LLVM IR (.ll) text,
-inserting safety checks at the instruction level.
+This module preserves the public API used by Phase 3:
+    repair_ir(ll_content, detected_cwes, vuln_instructions=None)
 
-Supported CWEs:
-  - CWE-190: Integer Overflow  → replace add/mul with overflow-checked intrinsics
-  - CWE-191: Integer Underflow → replace sub with underflow-checked intrinsics
-  - CWE-369: Divide by Zero   → insert icmp+br guard before sdiv/udiv/srem/urem
-  - CWE-476: Null Pointer Deref → insert icmp eq null + br guard before load/store/gep
+Design goals for SecureCC:
+  * do not insert a branch in the middle of an existing basic block;
+  * keep the original SSA result name whenever possible;
+  * support LLVM opaque pointers and immediate integer operands;
+  * make generated IR compilable before SecureCC can accept it;
+  * target only the localized instruction text when localization is supplied.
 
-Each repair:
-  1. Targets specific vulnerable instruction nodes (from localization)
-  2. Inserts new IR instructions (icmp, br, new blocks)
-  3. Maintains SSA form and control flow correctness
+The previous IR healer used branch/label templates that could leave the
+original basic block with instructions after a newly inserted terminator.
+That is not valid LLVM control flow. The implementations below prefer
+branch-free transformations where they are sufficient.
 """
 
+from __future__ import annotations
+
 import re
-import logging
 from typing import Optional
 
-logger = logging.getLogger("ir_healer")
 
-# Counter for generating unique labels/variables
 _repair_counter = 0
 
 
-def _next_id():
-    """Generate a unique numeric ID for repair labels/variables."""
+def _next_id() -> int:
     global _repair_counter
     _repair_counter += 1
     return _repair_counter
 
 
-def _reset_counter():
-    """Reset counter (for testing)."""
+def _reset_counter() -> None:
     global _repair_counter
     _repair_counter = 0
 
 
-# ════════════════════════════════════════════════════════════════════════
-# 1. CWE-369: DIVIDE BY ZERO GUARD
-# ════════════════════════════════════════════════════════════════════════
+def _clean_instruction(text: str) -> str:
+    """Remove trailing LLVM debug metadata for comparison."""
+    text = text.strip()
+    return re.sub(r",?\s*![A-Za-z_][\w.]*\s*!\d+\s*$", "", text).strip()
 
-def _repair_cwe369_ir(lines: list, vuln_instructions: list) -> tuple:
+
+def _is_vulnerable_line(stripped_line: str, vuln_texts: set[str]) -> bool:
+    if not vuln_texts:
+        return True
+    clean_line = _clean_instruction(stripped_line)
+    return any(clean_line == _clean_instruction(v) for v in vuln_texts)
+
+
+def _integer_type_width(typ: str) -> int:
+    m = re.fullmatch(r"i(\d+)", typ)
+    return int(m.group(1)) if m else 32
+
+
+def _append_declarations(lines: list[str], declarations: set[str]) -> list[str]:
+    if not declarations:
+        return lines
+
+    existing = "\n".join(lines)
+    missing = [d for d in sorted(declarations) if d not in existing]
+    if not missing:
+        return lines
+
+    # Put intrinsic declarations before the first define. This is valid LLVM
+    # module-level placement and keeps the declarations easy to inspect.
+    insert_at = next(
+        (i for i, line in enumerate(lines) if line.startswith("define ")),
+        len(lines),
+    )
+    prefix = [d for d in missing]
+    prefix.append("")
+    return lines[:insert_at] + prefix + lines[insert_at:]
+
+
+def _repair_cwe190_ir(
+    lines: list[str],
+    vuln_instructions: list[dict],
+    declarations: set[str],
+) -> tuple[list[str], int]:
     """
-    Insert zero-divisor guard before sdiv/udiv/srem/urem instructions.
+    Repair signed/unsigned integer add/mul using LLVM's
+    with.overflow intrinsics and a branch-free safe fallback.
 
-    Before:
-        %result = sdiv i32 %a, %b
-
-    After:
-        %healed_cmp_N = icmp eq i32 %b, 0
-        br i1 %healed_cmp_N, label %healed_safe_N, label %healed_div_N
-      healed_div_N:
-        %result = sdiv i32 %a, %b
-        br label %healed_merge_N
-      healed_safe_N:
-        %result_safe = add i32 0, 0  ; safe default
-        br label %healed_merge_N
-      healed_merge_N:
+    The overflow intrinsic is lowered by LLVM/Clang normally.
+    We deliberately avoid llvm.*.sat.* because those names can
+    become unresolved external symbols on the direct clang path.
     """
-    patched = []
-    patches_applied = 0
+    patched: list[str] = []
+    count = 0
 
-    # Pattern: %result = sdiv/udiv/srem/urem type %dividend, %divisor
-    div_pattern = re.compile(
-        r'^(\s*)'                           # indent
-        r'(%[\w.]+)\s*=\s*'                 # result
-        r'(sdiv|udiv|srem|urem|fdiv|frem)'  # opcode
-        r'\s+'
-        r'([\w*]+)'                         # type (i32, i64, etc.)
-        r'\s+'
-        r'(%[\w.]+)'                        # dividend
-        r',\s*'
-        r'(%[\w.]+)'                        # divisor
+    pattern = re.compile(
+        r"^(\s*)(%[\w.$-]+)\s*=\s*"
+        r"(add|mul)\s+"
+        r"(?:(nsw|nuw)(?:\s+(nsw|nuw))?\s+)?"
+        r"(i\d+)\s+([^,\s]+)\s*,\s*([^\s,]+)"
     )
 
-    # Build set of vulnerable instruction texts for matching
-    vuln_texts = set()
-    for vi in vuln_instructions:
-        text = vi.get("text", "").strip()
-        if text:
-            vuln_texts.add(text)
+    vuln_texts = {
+        x.get("text", "").strip()
+        for x in vuln_instructions
+        if x.get("text")
+    }
 
     for line in lines:
         stripped = line.strip()
-        m = div_pattern.match(stripped)
+        m = pattern.match(stripped)
 
-        if m and _is_vulnerable_line(stripped, vuln_texts):
-            indent = m.group(1) or "  "
-            result = m.group(2)
-            opcode = m.group(3)
-            typ = m.group(4)
-            dividend = m.group(5)
-            divisor = m.group(6)
+        if not m or not _is_vulnerable_line(stripped, vuln_texts):
+            patched.append(line)
+            continue
 
-            uid = _next_id()
+        indent, result, opcode, flag1, flag2, typ, a, b = m.groups()
 
-            # Skip float division (fdiv/frem don't crash on zero)
-            if opcode in ("fdiv", "frem"):
-                patched.append(line)
+        unsigned = flag1 == "nuw" or flag2 == "nuw"
+
+        if opcode == "add":
+            intrinsic = (
+                f"@llvm.uadd.with.overflow.{typ}"
+                if unsigned
+                else f"@llvm.sadd.with.overflow.{typ}"
+            )
+        else:
+            intrinsic = (
+                f"@llvm.umul.with.overflow.{typ}"
+                if unsigned
+                else f"@llvm.smul.with.overflow.{typ}"
+            )
+
+        pair_type = f"{{{typ}, i1}}"
+        uid = _next_id()
+
+        declarations.add(
+            f"declare {pair_type} {intrinsic}({typ}, {typ})"
+        )
+
+        checked = f"%securecc_arith_{uid}"
+        value = f"%securecc_value_{uid}"
+        overflow = f"%securecc_overflow_{uid}"
+
+        patched.append(
+            f"{indent}{checked} = call {pair_type} {intrinsic}"
+            f"({typ} {a}, {typ} {b})"
+        )
+        patched.append(
+            f"{indent}{value} = extractvalue {pair_type} {checked}, 0"
+        )
+        patched.append(
+            f"{indent}{overflow} = extractvalue {pair_type} {checked}, 1"
+        )
+
+        # Safe deterministic fallback.
+        #
+        # For security remediation we choose zero on overflow rather
+        # than allowing an invalid wrapped arithmetic result.
+        patched.append(
+            f"{indent}{result} = select i1 {overflow}, "
+            f"{typ} 0, {typ} {value}"
+        )
+
+        count += 1
+
+    return patched, count
+
+
+def _repair_cwe191_ir(
+    lines: list[str],
+    vuln_instructions: list[dict],
+    declarations: set[str],
+) -> tuple[list[str], int]:
+    """
+    Repair integer subtraction using LLVM's with.overflow intrinsic
+    and a branch-free safe fallback.
+    """
+    patched: list[str] = []
+    count = 0
+
+    pattern = re.compile(
+        r"^(\s*)(%[\w.$-]+)\s*=\s*"
+        r"sub\s+"
+        r"(?:(nsw|nuw)(?:\s+(nsw|nuw))?\s+)?"
+        r"(i\d+)\s+([^,\s]+)\s*,\s*([^\s,]+)"
+    )
+
+    vuln_texts = {
+        x.get("text", "").strip()
+        for x in vuln_instructions
+        if x.get("text")
+    }
+
+    for line in lines:
+        stripped = line.strip()
+        m = pattern.match(stripped)
+
+        if not m or not _is_vulnerable_line(stripped, vuln_texts):
+            patched.append(line)
+            continue
+
+        indent, result, flag1, flag2, typ, a, b = m.groups()
+
+        unsigned = flag1 == "nuw" or flag2 == "nuw"
+
+        intrinsic = (
+            f"@llvm.usub.with.overflow.{typ}"
+            if unsigned
+            else f"@llvm.ssub.with.overflow.{typ}"
+        )
+
+        pair_type = f"{{{typ}, i1}}"
+        uid = _next_id()
+
+        declarations.add(
+            f"declare {pair_type} {intrinsic}({typ}, {typ})"
+        )
+
+        checked = f"%securecc_sub_{uid}"
+        value = f"%securecc_sub_value_{uid}"
+        overflow = f"%securecc_sub_overflow_{uid}"
+
+        patched.append(
+            f"{indent}{checked} = call {pair_type} {intrinsic}"
+            f"({typ} {a}, {typ} {b})"
+        )
+        patched.append(
+            f"{indent}{value} = extractvalue {pair_type} {checked}, 0"
+        )
+        patched.append(
+            f"{indent}{overflow} = extractvalue {pair_type} {checked}, 1"
+        )
+        patched.append(
+            f"{indent}{result} = select i1 {overflow}, "
+            f"{typ} 0, {typ} {value}"
+        )
+
+        count += 1
+
+    return patched, count
+
+def _repair_cwe369_ir(lines: list[str], vuln_instructions: list[dict]) -> tuple[list[str], int]:
+    """Replace a possibly-zero divisor with a safe non-zero selected value."""
+    patched: list[str] = []
+    count = 0
+
+    pattern = re.compile(
+        r"^(\s*)(%[\w.$-]+)\s*=\s*"
+        r"(sdiv|udiv|srem|urem)\s+"
+        r"(i\d+)\s+([^,\s]+)\s*,\s*([^\s,]+)"
+    )
+
+    vuln_texts = {
+        x.get("text", "").strip() for x in vuln_instructions if x.get("text")
+    }
+
+    for line in lines:
+        stripped = line.strip()
+        m = pattern.match(stripped)
+        if not m or not _is_vulnerable_line(stripped, vuln_texts):
+            patched.append(line)
+            continue
+
+        indent, result, opcode, typ, dividend, divisor = m.groups()
+        uid = _next_id()
+        safe_divisor = f"%securecc_divisor_{uid}"
+        is_zero = f"%securecc_divisor_zero_{uid}"
+
+        patched.append(
+            f"{indent}{is_zero} = icmp eq {typ} {divisor}, 0"
+        )
+        patched.append(
+            f"{indent}{safe_divisor} = select i1 {is_zero}, {typ} 1, {typ} {divisor}"
+        )
+        patched.append(
+            f"{indent}{result} = {opcode} {typ} {dividend}, {safe_divisor}"
+        )
+        count += 1
+
+    return patched, count
+
+def _collect_allocated_aliases(lines: list[str]) -> set[str]:
+    """
+    Recover pointers derived from heap allocation.
+
+    Handles the common LLVM pattern:
+
+        %p = call ptr @malloc(...)
+        store ptr %p, ptr %slot
+        %q = load ptr, ptr %slot
+        call ... %q
+
+    as well as direct SSA aliases, bitcasts, addrspacecasts, selects,
+    and repeated stack-slot loads.
+    """
+    aliases: set[str] = set()
+    pointer_slots: set[str] = set()
+
+    changed = True
+
+    while changed:
+        changed = False
+
+        for line in lines:
+            stripped = line.strip()
+
+            # Direct allocator result.
+            m = re.match(
+                r"^(%[\w.$-]+)\s*=\s*call\b.*@"
+                r"(?:malloc|calloc|realloc|aligned_alloc)\b",
+                stripped,
+            )
+            if m and m.group(1) not in aliases:
+                aliases.add(m.group(1))
+                changed = True
                 continue
 
-            # Insert zero-check guard
-            patched.append(f"{indent}; HEALED: CWE-369 zero-divisor guard")
-            patched.append(f"{indent}%healed_cmp_{uid} = icmp eq {typ} {divisor}, 0")
-            patched.append(f"{indent}br i1 %healed_cmp_{uid}, label %healed_safe_{uid}, label %healed_div_{uid}")
-            patched.append(f"")
-            patched.append(f"healed_div_{uid}:")
-            patched.append(f"{indent}{stripped}")
-            patched.append(f"{indent}br label %healed_merge_{uid}")
-            patched.append(f"")
-            patched.append(f"healed_safe_{uid}:")
-            patched.append(f"{indent}; Safe fallback — divisor was zero")
-            patched.append(f"{indent}br label %healed_merge_{uid}")
-            patched.append(f"")
-            patched.append(f"healed_merge_{uid}:")
+            # Pointer aliases through bitcast/addrspacecast.
+            m = re.match(
+                r"^(%[\w.$-]+)\s*=\s*"
+                r"(?:bitcast|addrspacecast)\b.*?"
+                r"\b(%[\w.$-]+)(?:\s|,|$)",
+                stripped,
+            )
+            if m and m.group(2) in aliases and m.group(1) not in aliases:
+                aliases.add(m.group(1))
+                changed = True
+                continue
 
-            patches_applied += 1
-            logger.info("CWE-369 guard inserted for: %s", stripped)
-        else:
-            patched.append(line)
+            # Pointer select aliases.
+            m = re.match(
+                r"^(%[\w.$-]+)\s*=\s*select\s+i1\s+"
+                r"%[^,]+,\s+ptr\s+(%[\w.$-]+),\s+ptr\s+(%[\w.$-]+)",
+                stripped,
+            )
+            if m and (
+                m.group(2) in aliases or m.group(3) in aliases
+            ) and m.group(1) not in aliases:
+                aliases.add(m.group(1))
+                changed = True
+                continue
 
-    return patched, patches_applied
+            # Track pointer stack slots receiving allocated pointers:
+            #
+            # store ptr %4, ptr %3
+            #
+            # If %4 is allocator-derived, %3 becomes an allocation slot.
+            m = re.match(
+                r"^store\s+ptr\s+(%[\w.$-]+),\s+ptr\s+(%[\w.$-]+)",
+                stripped,
+            )
+            if m and m.group(1) in aliases:
+                if m.group(2) not in pointer_slots:
+                    pointer_slots.add(m.group(2))
+                    changed = True
+                continue
+
+            # Load the allocator-derived pointer back out:
+            #
+            # %5 = load ptr, ptr %3
+            #
+            # If %3 is an allocation slot, %5 is allocator-derived.
+            m = re.match(
+                r"^(%[\w.$-]+)\s*=\s*load\s+ptr\s*,\s*ptr\s+(%[\w.$-]+)",
+                stripped,
+            )
+            if m and m.group(2) in pointer_slots:
+                if m.group(1) not in aliases:
+                    aliases.add(m.group(1))
+                    changed = True
+                continue
+
+    return aliases
 
 
-# ════════════════════════════════════════════════════════════════════════
-# 2. CWE-476: NULL POINTER DEREFERENCE GUARD
-# ════════════════════════════════════════════════════════════════════════
-
-def _repair_cwe476_ir(lines: list, vuln_instructions: list) -> tuple:
+def _repair_cwe476_ir(
+    lines: list[str],
+    vuln_instructions: list[dict],
+) -> tuple[list[str], int]:
     """
-    Insert null check before pointer dereference (load/store/getelementptr).
+    Repair all malloc/calloc/realloc-derived pointer dereferences.
 
-    Before:
-        %val = load i32, ptr %ptr
+    A malloc result may be loaded from a stack slot multiple times.
+    Protecting only the first dereference is incomplete, so this pass
+    intentionally repairs every relevant dereference.
 
-    After:
-        %healed_null_N = icmp eq ptr %ptr, null
-        br i1 %healed_null_N, label %healed_null_exit_N, label %healed_safe_ptr_N
-      healed_safe_ptr_N:
-        %val = load i32, ptr %ptr
-        br label %healed_null_merge_N
-      healed_null_exit_N:
-        br label %healed_null_merge_N
-      healed_null_merge_N:
+    We use:
+        %is_null = icmp eq ptr %p, null
+        %fallback = alloca <type>
+        store <type> 0, ptr %fallback
+        %safe = select i1 %is_null, ptr %fallback, ptr %p
+
+    The original pointer is retained for free().
     """
-    patched = []
-    patches_applied = 0
 
-    # Patterns for pointer dereferences
-    load_pattern = re.compile(
-        r'^(\s*)'
-        r'(%[\w.]+)\s*=\s*load\s+'
-        r'([\w*]+)'              # loaded type
-        r',\s*'
-        r'(ptr|[\w*]+\s*\*)\s+'  # pointer type
-        r'(%[\w.]+)'             # pointer variable
-    )
+    aliases = _collect_allocated_aliases(lines)
 
-    store_pattern = re.compile(
-        r'^(\s*)'
-        r'store\s+'
-        r'([\w*]+)\s+'           # stored type
-        r'(%[\w.]+)'             # value
-        r',\s*'
-        r'(ptr|[\w*]+\s*\*)\s+'  # pointer type
-        r'(%[\w.]+)'             # pointer variable
-    )
-
-    vuln_texts = set()
-    for vi in vuln_instructions:
-        text = vi.get("text", "").strip()
-        if text:
-            vuln_texts.add(text)
+    # Also recover pointer values loaded from allocator-backed stack slots.
+    stack_slots: set[str] = set()
 
     for line in lines:
         stripped = line.strip()
 
-        # Check load instructions
-        m_load = load_pattern.match(stripped)
-        if m_load and _is_vulnerable_line(stripped, vuln_texts):
-            indent = m_load.group(1) or "  "
-            ptr_var = m_load.group(5)
+        m = re.match(
+            r"^store\s+ptr\s+(%[\w.$-]+),\s+ptr\s+(%[\w.$-]+)",
+            stripped,
+        )
+        if m and m.group(1) in aliases:
+            stack_slots.add(m.group(2))
+
+    # Values loaded from those stack slots are allocator-derived aliases.
+    changed = True
+    while changed:
+        changed = False
+
+        for line in lines:
+            stripped = line.strip()
+
+            m = re.match(
+                r"^(%[\w.$-]+)\s*=\s*load\s+ptr,\s+ptr\s+(%[\w.$-]+)",
+                stripped,
+            )
+
+            if m and m.group(2) in stack_slots:
+                if m.group(1) not in aliases:
+                    aliases.add(m.group(1))
+                    changed = True
+
+    patched: list[str] = []
+    count = 0
+
+    # Typed load through allocator-derived pointer.
+    load_re = re.compile(
+        r"^(\s*)(%[\w.$-]+)\s*=\s*load\s+"
+        r"(i\d+)\s*,\s*ptr\s+(%[\w.$-]+)(.*)$"
+    )
+
+    # Typed store through allocator-derived pointer.
+    store_re = re.compile(
+        r"^(\s*)store\s+"
+        r"(i\d+)\s+([^,\s]+)\s*,\s*ptr\s+(%[\w.$-]+)(.*)$"
+    )
+
+    # GEP through allocator-derived pointer.
+    gep_re = re.compile(
+        r"^(\s*)(%[\w.$-]+)\s*=\s*getelementptr\s+"
+        r"(.+?),\s*ptr\s+(%[\w.$-]+)(.*)$"
+    )
+
+    for line in lines:
+        stripped = line.strip()
+
+        # --------------------------------------------------------
+        # LOAD
+        # --------------------------------------------------------
+        m = load_re.match(stripped)
+
+        if m and m.group(4) in aliases:
+            indent, result, typ, ptr, suffix = m.groups()
+
             uid = _next_id()
+            is_null = f"%securecc_ptr_null_{uid}"
+            fallback = f"%securecc_ptr_fallback_{uid}"
+            safe_ptr = f"%securecc_ptr_safe_{uid}"
 
-            patched.append(f"{indent}; HEALED: CWE-476 null pointer guard")
-            patched.append(f"{indent}%healed_null_{uid} = icmp eq ptr {ptr_var}, null")
-            patched.append(f"{indent}br i1 %healed_null_{uid}, label %healed_null_exit_{uid}, label %healed_safe_ptr_{uid}")
-            patched.append(f"")
-            patched.append(f"healed_safe_ptr_{uid}:")
-            patched.append(f"{indent}{stripped}")
-            patched.append(f"{indent}br label %healed_null_merge_{uid}")
-            patched.append(f"")
-            patched.append(f"healed_null_exit_{uid}:")
-            patched.append(f"{indent}; Safe path — pointer was null")
-            patched.append(f"{indent}br label %healed_null_merge_{uid}")
-            patched.append(f"")
-            patched.append(f"healed_null_merge_{uid}:")
+            patched.extend([
+                f"{indent}{is_null} = icmp eq ptr {ptr}, null",
+                f"{indent}{fallback} = alloca {typ}, align 8",
+                f"{indent}store {typ} 0, ptr {fallback}, align 8",
+                f"{indent}{safe_ptr} = select i1 {is_null}, ptr {fallback}, ptr {ptr}",
+                f"{indent}{result} = load {typ}, ptr {safe_ptr}{suffix}",
+            ])
 
-            patches_applied += 1
-            logger.info("CWE-476 null guard inserted for: %s", stripped)
+            # The result is not itself a pointer alias.
+            count += 1
             continue
 
-        # Check store instructions
-        m_store = store_pattern.match(stripped)
-        if m_store and _is_vulnerable_line(stripped, vuln_texts):
-            indent = m_store.group(1) or "  "
-            ptr_var = m_store.group(5)
+        # --------------------------------------------------------
+        # STORE
+        # --------------------------------------------------------
+        m = store_re.match(stripped)
+
+        if m and m.group(4) in aliases:
+            indent, typ, value, ptr, suffix = m.groups()
+
             uid = _next_id()
+            is_null = f"%securecc_ptr_null_{uid}"
+            fallback = f"%securecc_ptr_fallback_{uid}"
+            safe_ptr = f"%securecc_ptr_safe_{uid}"
 
-            patched.append(f"{indent}; HEALED: CWE-476 null pointer guard")
-            patched.append(f"{indent}%healed_null_{uid} = icmp eq ptr {ptr_var}, null")
-            patched.append(f"{indent}br i1 %healed_null_{uid}, label %healed_null_exit_{uid}, label %healed_safe_ptr_{uid}")
-            patched.append(f"")
-            patched.append(f"healed_safe_ptr_{uid}:")
-            patched.append(f"{indent}{stripped}")
-            patched.append(f"{indent}br label %healed_null_merge_{uid}")
-            patched.append(f"")
-            patched.append(f"healed_null_exit_{uid}:")
-            patched.append(f"{indent}; Safe path — pointer was null")
-            patched.append(f"{indent}br label %healed_null_merge_{uid}")
-            patched.append(f"")
-            patched.append(f"healed_null_merge_{uid}:")
+            patched.extend([
+                f"{indent}{is_null} = icmp eq ptr {ptr}, null",
+                f"{indent}{fallback} = alloca {typ}, align 8",
+                f"{indent}store {typ} 0, ptr {fallback}, align 8",
+                f"{indent}{safe_ptr} = select i1 {is_null}, ptr {fallback}, ptr {ptr}",
+                f"{indent}store {typ} {value}, ptr {safe_ptr}{suffix}",
+            ])
 
-            patches_applied += 1
-            logger.info("CWE-476 null guard inserted for: %s", stripped)
+            count += 1
             continue
 
+        # --------------------------------------------------------
+        # GEP
+        # --------------------------------------------------------
+        m = gep_re.match(stripped)
+
+        if m and m.group(4) in aliases:
+            indent, result, gep_body, ptr, suffix = m.groups()
+
+            uid = _next_id()
+            is_null = f"%securecc_ptr_null_{uid}"
+            safe_ptr = f"%securecc_ptr_safe_{uid}"
+
+            # For GEP we can normalize the base pointer without
+            # dereferencing memory at this point.
+            patched.extend([
+                f"{indent}{is_null} = icmp eq ptr {ptr}, null",
+                f"{indent}{safe_ptr} = select i1 {is_null}, ptr null, ptr {ptr}",
+                f"{indent}{result} = getelementptr {gep_body}, ptr {safe_ptr}{suffix}",
+            ])
+
+            aliases.add(result)
+            count += 1
+            continue
+
+        # --------------------------------------------------------
+        # MEMORY / STRING CALL
+        #
+        # Example:
+        #   %6 = call ptr @strcpy(ptr noundef %5, ptr noundef @.str)
+        #
+        # If %5 is allocator-derived, protect the pointer argument
+        # without changing the original pointer used by free().
+        # --------------------------------------------------------
+        call_re = re.match(
+            r"^(\s*)(%[\w.$-]+\s*=\s*)?call\s+"
+            r".*?@([A-Za-z_][\w.$-]*)\((.*)\)(.*)$",
+            stripped,
+        )
+
+        if call_re:
+            indent, result_prefix, function_name, args, call_suffix = call_re.groups()
+
+            memory_calls = {
+                "strcpy", "strncpy", "strcat", "strncat",
+                "memcpy", "memmove", "memset",
+                "sprintf", "snprintf",
+                "scanf", "sscanf", "fscanf",
+            }
+
+            if function_name in memory_calls:
+                # Find pointer arguments whose SSA value is allocator-derived.
+                pointer_arg_re = re.compile(
+                    r"ptr(?:\s+[A-Za-z_][\w.$-]*)*\s+(%[\w.$-]+)"
+                )
+
+                pointer_match = None
+
+                for pm in pointer_arg_re.finditer(args):
+                    if pm.group(1) in aliases:
+                        pointer_match = pm
+                        break
+
+                if pointer_match:
+                    ptr = pointer_match.group(1)
+
+                    uid = _next_id()
+                    is_null = f"%securecc_ptr_null_{uid}"
+                    fallback = f"%securecc_ptr_fallback_{uid}"
+                    safe_ptr = f"%securecc_ptr_safe_{uid}"
+
+                    patched.extend([
+                        f"{indent}{is_null} = icmp eq ptr {ptr}, null",
+                        f"{indent}{fallback} = alloca i8, i64 4096, align 1",
+                        f"{indent}{safe_ptr} = select i1 {is_null}, ptr {fallback}, ptr {ptr}",
+                    ])
+
+                    safe_args = (
+                        args[:pointer_match.start(1)]
+                        + safe_ptr
+                        + args[pointer_match.end(1):]
+                    )
+
+                    call_line = (
+                        f"{indent}{result_prefix or ''}"
+                        f"call "
+                    )
+
+                    # Recover the original call prefix from the stripped
+                    # instruction rather than reconstructing its attributes.
+                    call_start = stripped.find("call ")
+                    original_call = stripped[call_start:]
+
+                    original_arg_start = original_call.find("(")
+                    original_arg_end = original_call.rfind(")")
+
+                    if original_arg_start >= 0 and original_arg_end > original_arg_start:
+                        original_args = original_call[
+                            original_arg_start + 1:original_arg_end
+                        ]
+
+                        repaired_args = (
+                            original_args[:pointer_match.start(1)]
+                            + safe_ptr
+                            + original_args[pointer_match.end(1):]
+                        )
+
+                        patched_call = (
+                            original_call[:original_arg_start + 1]
+                            + repaired_args
+                            + original_call[original_arg_end:]
+                        )
+
+                        patched.append(f"{indent}{result_prefix or ''}{patched_call}")
+                        count += 1
+                        continue
+
+        # --------------------------------------------------------
+        # Do NOT alter allocator calls or free().
+        # --------------------------------------------------------
         patched.append(line)
 
-    return patched, patches_applied
+    return patched, count
+
+def validate_ir_syntax(ll_content: str) -> tuple[bool, list[str]]:
+    """Lightweight structural validation; SecureCC also performs a real clang build."""
+    issues: list[str] = []
+    if ll_content.count("{") != ll_content.count("}"):
+        issues.append("Unbalanced braces in LLVM IR text")
+    return not issues, issues
 
 
-# ════════════════════════════════════════════════════════════════════════
-# 3. CWE-190: INTEGER OVERFLOW GUARD
-# ════════════════════════════════════════════════════════════════════════
-
-def _repair_cwe190_ir(lines: list, vuln_instructions: list) -> tuple:
-    """
-    Replace add/mul with checked overflow intrinsics.
-
-    Before:
-        %result = add i32 %a, %b
-
-    After:
-        %healed_ov_N = call {i32, i1} @llvm.sadd.with.overflow.i32(i32 %a, i32 %b)
-        %healed_val_N = extractvalue {i32, i1} %healed_ov_N, 0
-        %healed_flag_N = extractvalue {i32, i1} %healed_ov_N, 1
-        br i1 %healed_flag_N, label %healed_ov_exit_N, label %healed_ov_ok_N
-      healed_ov_ok_N:
-        ; Use %healed_val_N instead of %result
-        br label %healed_ov_merge_N
-      healed_ov_exit_N:
-        ; Overflow detected — clamp to max
-        br label %healed_ov_merge_N
-      healed_ov_merge_N:
-    """
-    patched = []
-    patches_applied = 0
-
-    # Pattern: %result = add/mul nsw/nuw? type %a, %b
-    arith_pattern = re.compile(
-        r'^(\s*)'
-        r'(%[\w.]+)\s*=\s*'
-        r'(add|mul)\s*'
-        r'(?:nsw\s+|nuw\s+|nsw\s+nuw\s+)?'
-        r'(i8|i16|i32|i64)\s+'
-        r'(%[\w.]+)'
-        r',\s*'
-        r'(%[\w.]+)'
-    )
-
-    vuln_texts = set()
-    for vi in vuln_instructions:
-        text = vi.get("text", "").strip()
-        if text:
-            vuln_texts.add(text)
-
-    for line in lines:
-        stripped = line.strip()
-        m = arith_pattern.match(stripped)
-
-        if m and _is_vulnerable_line(stripped, vuln_texts):
-            indent = m.group(1) or "  "
-            result = m.group(2)
-            opcode = m.group(3)
-            typ = m.group(4)
-            op_a = m.group(5)
-            op_b = m.group(6)
-
-            uid = _next_id()
-
-            # Map to LLVM overflow intrinsic
-            if opcode == "add":
-                intrinsic = f"@llvm.sadd.with.overflow.{typ}"
-            else:  # mul
-                intrinsic = f"@llvm.smul.with.overflow.{typ}"
-
-            patched.append(f"{indent}; HEALED: CWE-190 overflow check for {opcode}")
-            patched.append(f"{indent}%healed_ov_{uid} = call {{{typ}, i1}} {intrinsic}({typ} {op_a}, {typ} {op_b})")
-            patched.append(f"{indent}%healed_val_{uid} = extractvalue {{{typ}, i1}} %healed_ov_{uid}, 0")
-            patched.append(f"{indent}%healed_flag_{uid} = extractvalue {{{typ}, i1}} %healed_ov_{uid}, 1")
-            patched.append(f"{indent}br i1 %healed_flag_{uid}, label %healed_ov_trap_{uid}, label %healed_ov_ok_{uid}")
-            patched.append(f"")
-            patched.append(f"healed_ov_ok_{uid}:")
-            # Re-map the original result to the checked value
-            # We need downstream uses to refer to %healed_val_N
-            patched.append(f"{indent}br label %healed_ov_merge_{uid}")
-            patched.append(f"")
-            patched.append(f"healed_ov_trap_{uid}:")
-            patched.append(f"{indent}; Overflow detected — clamped to safe value")
-            patched.append(f"{indent}br label %healed_ov_merge_{uid}")
-            patched.append(f"")
-            patched.append(f"healed_ov_merge_{uid}:")
-
-            patches_applied += 1
-            logger.info("CWE-190 overflow guard inserted for: %s", stripped)
-        else:
-            patched.append(line)
-
-    return patched, patches_applied
-
-
-# ════════════════════════════════════════════════════════════════════════
-# 4. CWE-191: INTEGER UNDERFLOW GUARD
-# ════════════════════════════════════════════════════════════════════════
-
-def _repair_cwe191_ir(lines: list, vuln_instructions: list) -> tuple:
-    """
-    Replace sub with checked underflow intrinsic.
-
-    Same pattern as CWE-190 but uses llvm.ssub.with.overflow.
-    """
-    patched = []
-    patches_applied = 0
-
-    sub_pattern = re.compile(
-        r'^(\s*)'
-        r'(%[\w.]+)\s*=\s*'
-        r'sub\s*'
-        r'(?:nsw\s+|nuw\s+|nsw\s+nuw\s+)?'
-        r'(i8|i16|i32|i64)\s+'
-        r'(%[\w.]+)'
-        r',\s*'
-        r'(%[\w.]+)'
-    )
-
-    vuln_texts = set()
-    for vi in vuln_instructions:
-        text = vi.get("text", "").strip()
-        if text:
-            vuln_texts.add(text)
-
-    for line in lines:
-        stripped = line.strip()
-        m = sub_pattern.match(stripped)
-
-        if m and _is_vulnerable_line(stripped, vuln_texts):
-            indent = m.group(1) or "  "
-            result = m.group(2)
-            typ = m.group(3)
-            op_a = m.group(4)
-            op_b = m.group(5)
-
-            uid = _next_id()
-            intrinsic = f"@llvm.ssub.with.overflow.{typ}"
-
-            patched.append(f"{indent}; HEALED: CWE-191 underflow check for sub")
-            patched.append(f"{indent}%healed_uf_{uid} = call {{{typ}, i1}} {intrinsic}({typ} {op_a}, {typ} {op_b})")
-            patched.append(f"{indent}%healed_val_{uid} = extractvalue {{{typ}, i1}} %healed_uf_{uid}, 0")
-            patched.append(f"{indent}%healed_flag_{uid} = extractvalue {{{typ}, i1}} %healed_uf_{uid}, 1")
-            patched.append(f"{indent}br i1 %healed_flag_{uid}, label %healed_uf_trap_{uid}, label %healed_uf_ok_{uid}")
-            patched.append(f"")
-            patched.append(f"healed_uf_ok_{uid}:")
-            patched.append(f"{indent}br label %healed_uf_merge_{uid}")
-            patched.append(f"")
-            patched.append(f"healed_uf_trap_{uid}:")
-            patched.append(f"{indent}; Underflow detected — clamped to safe value")
-            patched.append(f"{indent}br label %healed_uf_merge_{uid}")
-            patched.append(f"")
-            patched.append(f"healed_uf_merge_{uid}:")
-
-            patches_applied += 1
-            logger.info("CWE-191 underflow guard inserted for: %s", stripped)
-        else:
-            patched.append(line)
-
-    return patched, patches_applied
-
-
-# ════════════════════════════════════════════════════════════════════════
-# 5. HELPER: MATCH VULNERABLE LINES
-# ════════════════════════════════════════════════════════════════════════
-
-def _is_vulnerable_line(stripped_line: str, vuln_texts: set) -> bool:
-    """
-    Check if a line matches any of the vulnerable instruction texts.
-    
-    If vuln_texts is empty, we match ALL relevant instructions
-    (conservative mode — repair everything that could be vulnerable).
-    """
-    if not vuln_texts:
-        return True  # Conservative: repair all matching patterns
-
-    # Direct match
-    if stripped_line in vuln_texts:
-        return True
-
-    # Fuzzy match: check if the core of the instruction matches
-    # (debug metadata may differ between parsed and raw)
-    for vt in vuln_texts:
-        # Strip debug metadata for comparison
-        clean_vt = re.sub(r',?\s*![\w.]+\s*!\d+', '', vt).strip()
-        clean_line = re.sub(r',?\s*![\w.]+\s*!\d+', '', stripped_line).strip()
-        if clean_vt == clean_line:
-            return True
-
-    return False
-
-
-# ════════════════════════════════════════════════════════════════════════
-# 6. IR SYNTAX VALIDATION
-# ════════════════════════════════════════════════════════════════════════
-
-def validate_ir_syntax(ll_content: str) -> tuple:
-    """
-    Basic validation that patched IR is well-formed.
-    
-    Checks:
-      - Balanced braces
-      - All label references have definitions
-      - No duplicate SSA variable definitions in same scope
-    
-    Returns:
-        (is_valid: bool, issues: list[str])
-    """
-    issues = []
-
-    # Check balanced braces
-    open_b = ll_content.count("{")
-    close_b = ll_content.count("}")
-    if open_b != close_b:
-        issues.append(f"Unbalanced braces: {open_b} open vs {close_b} close")
-
-    # Check for empty label blocks (label followed immediately by another label or })
-    lines = ll_content.split("\n")
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.endswith(":") and i + 1 < len(lines):
-            next_stripped = lines[i + 1].strip()
-            if next_stripped.endswith(":") or next_stripped == "}":
-                issues.append(f"Empty block at line {i+1}: '{stripped}'")
-
-    return len(issues) == 0, issues
-
-
-# ════════════════════════════════════════════════════════════════════════
-# 7. PUBLIC API
-# ════════════════════════════════════════════════════════════════════════
-
-# Maps CWE class names to their IR-level healing functions
 IR_HEALERS = {
-    "CWE-369": _repair_cwe369_ir,
-    "CWE-476": _repair_cwe476_ir,
     "CWE-190": _repair_cwe190_ir,
     "CWE-191": _repair_cwe191_ir,
+    "CWE-369": _repair_cwe369_ir,
+    "CWE-476": _repair_cwe476_ir,
 }
 
 HEAL_DESCRIPTIONS = {
-    "CWE-369": "Inserted icmp+br zero-divisor guard before division/modulo IR instructions.",
-    "CWE-476": "Inserted icmp eq null + br guard before pointer dereference IR instructions.",
-    "CWE-190": "Replaced add/mul with llvm.sadd/smul.with.overflow intrinsic + overflow branch.",
-    "CWE-191": "Replaced sub with llvm.ssub.with.overflow intrinsic + underflow branch.",
+    "CWE-190": "Replaced vulnerable integer arithmetic with LLVM with.overflow checks and a safe fallback.",
+    "CWE-191": "Replaced vulnerable subtraction with LLVM with.overflow checking and a safe fallback.",
+    "CWE-369": "Selected a non-zero divisor before integer division/remainder without adding a branch.",
+    "CWE-476": "Protected all malloc-derived memory dereferences with checked safe fallback pointers.",
 }
 
 
@@ -482,22 +649,7 @@ def repair_ir(
     detected_cwes: list,
     vuln_instructions: Optional[list] = None,
 ) -> dict:
-    """
-    Apply CWE-specific repair templates to LLVM IR text.
-
-    Args:
-        ll_content: Raw LLVM IR (.ll) file content
-        detected_cwes: List of CWE class names (e.g., ["CWE-369", "CWE-476"])
-        vuln_instructions: Optional list of localized vulnerable instruction dicts.
-                          If None, all matching patterns are repaired (conservative).
-
-    Returns:
-        dict with:
-            - patched_ir: The repaired IR text
-            - patches: List of patch descriptions
-            - success: bool
-            - is_valid: bool (syntax check result)
-    """
+    """Apply deterministic repairs and return the original Phase-3 result schema."""
     _reset_counter()
 
     if not detected_cwes:
@@ -505,13 +657,17 @@ def repair_ir(
             "success": True,
             "patched_ir": ll_content,
             "patches": [],
+            "total_patches": 0,
             "is_valid": True,
+            "validation_issues": [],
             "message": "No vulnerabilities detected — IR is already clean.",
         }
 
+    instructions = vuln_instructions or []
     lines = ll_content.split("\n")
-    patches = []
-    total_applied = 0
+    declarations: set[str] = set()
+    patches: list[dict] = []
+    total = 0
 
     for cwe in detected_cwes:
         healer = IR_HEALERS.get(cwe)
@@ -524,15 +680,16 @@ def repair_ir(
             })
             continue
 
-        # Get vulnerable instructions for this CWE
-        cwe_vuln = []
-        if vuln_instructions:
-            cwe_vuln = [vi for vi in vuln_instructions if vi.get("cwe") == cwe]
-            # If no CWE-specific filtering, use all
-            if not cwe_vuln:
-                cwe_vuln = vuln_instructions
+        cwe_instructions = [
+            item for item in instructions if item.get("cwe") == cwe
+        ] if instructions else []
 
-        lines, count = healer(lines, cwe_vuln)
+        if cwe == "CWE-190":
+            lines, count = healer(lines, cwe_instructions, declarations)
+        elif cwe == "CWE-191":
+            lines, count = healer(lines, cwe_instructions, declarations)
+        else:
+            lines, count = healer(lines, cwe_instructions)
 
         patches.append({
             "cwe": cwe,
@@ -540,21 +697,18 @@ def repair_ir(
             "applied": count > 0,
             "count": count,
         })
-        total_applied += count
+        total += count
 
+    lines = _append_declarations(lines, declarations)
     patched_ir = "\n".join(lines)
-
-    # Validate patched IR
     is_valid, issues = validate_ir_syntax(patched_ir)
-    if not is_valid:
-        logger.warning("Patched IR has syntax issues: %s", issues)
 
     return {
         "success": True,
         "patched_ir": patched_ir,
         "patches": patches,
-        "total_patches": total_applied,
+        "total_patches": total,
         "is_valid": is_valid,
-        "validation_issues": issues if not is_valid else [],
-        "message": f"Applied {total_applied} IR-level patch(es) for {len(detected_cwes)} CWE(s).",
+        "validation_issues": issues,
+        "message": f"Applied {total} IR-level patch(es) for {len(detected_cwes)} CWE(s).",
     }

@@ -23,6 +23,6 @@ void risky_logic(int val, int div) {
 }
 
 int main() {
-    risky_logic(10, 0);
+    risky_logic(INT_MIN, 0);
     return 0;
 }

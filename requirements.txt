@@ -1,23 +1,58 @@
-# Core ML
+# ============================================================
+# VulnHGNN 2.0 SecureCC
+# Python Runtime Dependencies
+# ============================================================
+
+# SecureCC production pipeline
+# ----------------------------
+# The core SecureCC pipeline uses Python's standard library.
+# No third-party Python package is required for:
+#   - analysis
+#   - detection
+#   - localization
+#   - explanation
+#   - repair
+#   - verification
+#   - sandboxing
+#   - hardening
+#   - protection
+#   - provenance
+#   - CLI
+
+# ============================================================
+# Optional ML / GNN subsystem
+# ============================================================
+#
+# These dependencies are required only when using the
+# src/V2/model/ subsystem.
+#
 torch>=2.0
 torch_geometric
+
+# ============================================================
+# Development / legacy ML dependencies
+# ============================================================
+#
+# Retained for the existing ML/model portion of the project.
+#
 numpy
 pandas
 scikit-learn
 scipy
-
-# Graph
 networkx
 
-# Web server
+# ============================================================
+# Optional legacy Web UI
+# ============================================================
 flask
 
-# Utilities
+# ============================================================
+# Utility / visualization dependencies
+# ============================================================
 tqdm
 matplotlib
 
-# Carbon emissions tracking
+# ============================================================
+# Optional carbon-emission tracking
+# ============================================================
 codecarbon
-
-# Opcode embeddings
-gensim
