@@ -339,6 +339,9 @@ harden
 protect
 learn
 benchmark
+web
+aai-security
+agent
 ```
 
 View the complete command help:
@@ -404,6 +407,39 @@ securecc protect <binary> --profile strip-unneeded
 ```bash
 securecc benchmark test_files/
 ```
+
+## Web dashboard
+
+Interactive UI for scan, localization, explain, diagnostics, learn, optional repair, IR graph, and raw JSON:
+
+```bash
+pip install flask
+securecc web
+```
+
+Open [http://127.0.0.1:5050](http://127.0.0.1:5050) in your browser.
+
+## Agentic AI security (PBL)
+
+Simulate prompt-injection / policy-bypass attacks, block malicious tool use, and print detection metrics:
+
+```bash
+python3 aai_security_demo.py
+# or
+securecc aai-security
+```
+
+See `docs/PBL_AAI_SECURITY.md` and artifacts under `build/aai_security/`.
+
+### Gemini agent
+
+```bash
+export GEMINI_API_KEY="your-key"
+python -m pip install google-generativeai
+securecc agent test_files/test_02_cwe190.c -m "Scan and explain the security issues."
+```
+
+Or use the **Gemini Agent** tab in `securecc web` (same API key on the server process).
 
 ---
 

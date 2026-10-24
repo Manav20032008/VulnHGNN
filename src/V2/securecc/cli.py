@@ -983,6 +983,66 @@ description=(
         default="text",
         help="benchmark output format",
     )
+
+    p_agent = sub.add_parser(
+        "agent",
+        help="run Gemini-backed SecureCC agent (requires GEMINI_API_KEY)",
+    )
+    p_agent.add_argument(
+        "source",
+        type=Path,
+        help="C/C++ source file to analyze",
+    )
+    p_agent.add_argument(
+        "--message",
+        "-m",
+        required=True,
+        help="natural-language goal for the agent",
+    )
+    p_agent.add_argument(
+        "--model",
+        default=None,
+        help="Gemini model id (default: gemini-2.0-flash or GEMINI_MODEL env)",
+    )
+    p_agent.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="output format",
+    )
+
+    p_aai = sub.add_parser(
+        "aai-security",
+        help="run Agentic AI attack simulation and security metrics",
+    )
+    p_aai.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="output format",
+    )
+
+    p_web = sub.add_parser(
+        "web",
+        help="start the SecureCC web dashboard",
+    )
+    p_web.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="bind address (default: 127.0.0.1)",
+    )
+    p_web.add_argument(
+        "--port",
+        type=int,
+        default=5050,
+        help="listen port (default: 5050)",
+    )
+    p_web.add_argument(
+        "--debug",
+        action="store_true",
+        help="enable Flask debug mode",
+    )
+
     args = parser.parse_args(argv)
 
     try:
@@ -1093,7 +1153,62 @@ description=(
                 output_dir=args.output_dir,
                 output_format=args.format,
             )
-            return 0 
+
+        if args.command == "agent":
+            from .agent import run_agent_session
+
+            result = run_agent_session(
+                source=args.source,
+                user_message=args.message,
+                project_root=Path.cwd(),
+                model=args.model,
+            )
+            if args.format == "json":
+                import json
+
+                print(json.dumps(result, indent=2, default=str))
+            else:
+                print("=" * 72)
+                print("VULNHGNN 2.0 — SECURECC GEMINI AGENT")
+                print("=" * 72)
+                print(f"Source  : {result['source']}")
+                print(f"Status  : {result['status']}")
+                print(f"Blocked : {result['blocked']}")
+                print()
+                print(result.get("final_message") or "(no final message)")
+                print()
+                for step in result.get("steps", []):
+                    print(f"  step {step.get('step')}: {step.get('action')} {step.get('tool', '')}")
+                print("=" * 72)
+            return 0 if result["status"] == "completed" and not result["blocked"] else 2
+
+        if args.command == "aai-security":
+            from .aai_security.runner import print_text_report, run_attack_suite
+
+            report = run_attack_suite(project_root=Path.cwd())
+            if args.format == "json":
+                import json
+
+                print(json.dumps(report, indent=2))
+            else:
+                print(print_text_report(report))
+            return 0 if report["metrics"]["attack_success_rate_asr"] == 0.0 else 2
+
+        if args.command == "web":
+            try:
+                import flask  # noqa: F401
+            except ImportError:
+                print(
+                    "securecc: error: Flask is required for the web dashboard. "
+                    "Install with: pip install flask",
+                    file=sys.stderr,
+                )
+                return 1
+            from .web import run_server
+
+            run_server(host=args.host, port=args.port, debug=args.debug)
+            return 0
+
         parser.print_help()
         return 0
 

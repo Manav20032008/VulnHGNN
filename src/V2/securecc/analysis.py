@@ -122,6 +122,7 @@ def analyze_source(source: Path) -> dict:
         return {
             "source": str(source),
             "llvm_ir": str(ll_path),
+            "graph": graph,
             "node_count": graph.number_of_nodes(),
             "edge_count": graph.number_of_edges(),
             "findings": findings,
