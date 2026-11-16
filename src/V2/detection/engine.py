@@ -12,6 +12,11 @@ class DetectionEngine:
 
         for detector in self.detectors:
             results = detector.detect(graph, context)
+            for item in results:
+                if not getattr(item, "compiler_stage", None):
+                    item.compiler_stage = getattr(
+                        detector, "compiler_stage", "llvm_ir_graph"
+                    )
             findings.extend(results)
 
         return findings

@@ -26,25 +26,23 @@ def plan_next_step(
     history: list[dict[str, Any]],
     model_name: str | None = None,
 ) -> dict[str, Any]:
-    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
         raise RuntimeError(
-            "Set GEMINI_API_KEY (or GOOGLE_API_KEY) to use the Gemini agent."
+            "AI analysis is not configured on the server. "
+            "Set the required API key in the server environment (see README)."
         )
 
     try:
-        import google.generativeai as genai
+        from groq import Groq
     except ImportError:
         raise RuntimeError(
-            "Install the Gemini SDK: python -m pip install google-generativeai"
+            "AI analysis dependencies are missing on the server. "
+            "Install project requirements (see README)."
         ) from None
 
-    genai.configure(api_key=api_key)
-    model_id = model_name or os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
-
-    model = genai.GenerativeModel(
-        model_id,
-        system_instruction=SYSTEM_PROMPT,
+    model_id = model_name or os.environ.get(
+        "GROQ_MODEL", "openai/gpt-oss-120b"
     )
 
     context = {
@@ -58,13 +56,16 @@ def plan_next_step(
         f"{json.dumps(context, indent=2)}"
     )
 
-    response = model.generate_content(
-        prompt,
-        generation_config=genai.GenerationConfig(
-            temperature=0.2,
-            response_mime_type="application/json",
-        ),
+    client = Groq(api_key=api_key)
+    response = client.chat.completions.create(
+        model=model_id,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.2,
+        response_format={"type": "json_object"},
     )
 
-    raw = (response.text or "").strip()
+    raw = (response.choices[0].message.content or "").strip()
     return _extract_json(raw)

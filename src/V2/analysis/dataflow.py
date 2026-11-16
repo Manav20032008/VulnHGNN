@@ -2,9 +2,10 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
+from .heap_ir import is_heap_alloc_call
+
 _INT_RE = re.compile(r"^-?\d+$")
 _RESULT_RE = re.compile(r"^\s*(%[-A-Za-z0-9$._]+)\s*=")
-_ALLOC_RE = re.compile(r"\b(?:malloc|calloc|realloc)\s*\(")
 _NULL_RE = re.compile(r"\bnull\b")
 _VALUE_RE = re.compile(r"%[-A-Za-z0-9$._]+|-?\d+")
 
@@ -183,15 +184,11 @@ class DataFlowAnalyzer:
 
                     if pointer_load:
                         memory_ptr = pointer_load.group(1)
-                        root = self._root(memory_ptr)
-
-                        if root in self.aliases:
-                            source = self._root(self.aliases[root])
-
-                            if self.aliases.get(result) != source:
-                                self.aliases[result] = source
-                                changed = True
-
+                        # Stack slot may hold an alloc pointer (store ptr %a, ptr %slot).
+                        source = self._root(memory_ptr)
+                        if self.aliases.get(result) != source:
+                            self.aliases[result] = source
+                            changed = True
                         continue
 
                     # Integer constant load.
@@ -342,7 +339,7 @@ class DataFlowAnalyzer:
             text = info.attrs.get("text", "")
             op = info.attrs.get("opcode", "")
             result = info.attrs.get("result") or self._result(text)
-            if result and op == "call" and _ALLOC_RE.search(text):
+            if result and op == "call" and is_heap_alloc_call(text):
                 results.append((result, info))
         return results
 

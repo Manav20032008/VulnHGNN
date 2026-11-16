@@ -3,15 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>VulnHGNN 2.0 — SecureCC Dashboard</title>
+  <title>VulnHGNN 2.0 — SecureCC Workbench</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <link rel="stylesheet" href="/static/app.css" />
+  <link rel="stylesheet" href="/static/workbench.css" />
 </head>
 <body>
-  <div class="app-shell">
+  <div class="app-shell app-shell-workbench" id="app-shell">
     <aside class="sidebar">
       <header class="brand">
         <div class="brand-mark">VH</div>
@@ -29,19 +30,9 @@
       <section class="panel">
         <h2>Upload source</h2>
         <label class="upload-zone" id="upload-zone">
-          <input type="file" id="file-input" accept=".c,.cc,.cpp,.cxx" hidden />
-          <span>Drop a <code>.c</code> file or click to browse</span>
+          <input type="file" id="file-input" accept=".c,.cc,.cpp,.cxx,.py" hidden />
+          <span>Drop <code>.c</code>, C++, or <code>.py</code> — or use the editor</span>
         </label>
-      </section>
-
-      <section class="panel options">
-        <label class="checkbox">
-          <input type="checkbox" id="include-fix" />
-          <span>Run repair pipeline (fix + verify)</span>
-        </label>
-        <button type="button" class="btn btn-primary" id="analyze-btn" disabled>
-          Analyze
-        </button>
       </section>
 
       <footer class="sidebar-footer">
@@ -50,109 +41,160 @@
       </footer>
     </aside>
 
-    <main class="main">
-      <div id="empty-state" class="empty-state">
-        <h2>Security analysis dashboard</h2>
-        <p>Select a test fixture or upload C source to run the full SecureCC pipeline: scan, localize, explain, diagnose, learn, and optional repair.</p>
-        <p class="muted">Verification remains the authority — repair results are shown only when the deterministic verifier accepts them.</p>
-      </div>
-
-      <div id="dashboard" class="dashboard hidden">
-        <header class="dash-header">
-          <div>
-            <h2 id="source-title">—</h2>
-            <p id="source-path" class="muted mono"></p>
+    <main class="main workbench-main">
+      <div class="workbench">
+        <section class="workbench-left" aria-label="Source editor">
+          <header class="workbench-editor-header">
+            <div>
+              <h2 id="editor-title">Source editor</h2>
+              <p id="editor-path" class="muted mono small">Load a C/C++ fixture or paste source</p>
+            </div>
+            <div class="workbench-editor-actions">
+              <label class="workbench-lang-label">
+                <span class="muted small">Language</span>
+                <select id="editor-language" class="editor-language-select" aria-label="Source language">
+                  <option value="c">C (.c)</option>
+                  <option value="cpp">C++ (.cpp)</option>
+                  <option value="python">Python (.py)</option>
+                </select>
+              </label>
+              <button type="button" class="btn btn-ghost btn-sm" id="editor-new-btn">New file</button>
+              <label class="checkbox inline" id="include-fix-wrap">
+                <input type="checkbox" id="include-fix" />
+                <span>Catalog heal (verify + AI)</span>
+              </label>
+              <button type="button" class="btn btn-primary" id="analyze-btn">Analyze</button>
+            </div>
+          </header>
+          <div class="editor-code-wrap">
+            <pre id="editor-line-numbers" class="editor-line-numbers" aria-hidden="true">1</pre>
+            <textarea id="source-editor" class="source-editor" spellcheck="false" placeholder="// C, C++, or Python — type here, then Analyze" wrap="off"></textarea>
           </div>
-          <div class="status-pill" id="overall-status">—</div>
-        </header>
+          <section id="semantic-lint-panel" class="semantic-lint-panel" aria-label="Live semantic warnings">
+            <header class="semantic-lint-header">
+              <h3>Live issues</h3>
+              <span id="semantic-lint-meta" class="muted small">Checking…</span>
+              <button type="button" class="btn btn-ghost btn-sm" id="semantic-lint-apply" title="Apply safe fixes: naming types, printf format, gets→fgets">Fix safe issues</button>
+            </header>
+            <div id="semantic-lint-list" class="semantic-lint-list"></div>
+          </section>
+        </section>
 
-        <div class="metrics" id="metrics"></div>
+        <section class="workbench-right" aria-label="Analysis results">
+          <div id="workbench-loading" class="workbench-loading hidden">
+            <div class="spinner"></div>
+            <p>Running SecureCC analysis…</p>
+          </div>
 
-        <nav class="tabs" role="tablist">
-          <button type="button" class="tab active" data-tab="overview">Overview</button>
-          <button type="button" class="tab" data-tab="findings">Findings</button>
-          <button type="button" class="tab" data-tab="localization">Localization</button>
-          <button type="button" class="tab" data-tab="explain">Explain</button>
-          <button type="button" class="tab" data-tab="diagnostics">Diagnostics</button>
-          <button type="button" class="tab" data-tab="learn">Learn</button>
-          <button type="button" class="tab" data-tab="repair">Repair</button>
-          <button type="button" class="tab" data-tab="evidence">Evidence</button>
-          <button type="button" class="tab" data-tab="graph">IR Graph</button>
-          <button type="button" class="tab" data-tab="source">Source</button>
-          <button type="button" class="tab" data-tab="agent">Gemini Agent</button>
-          <button type="button" class="tab" data-tab="aai">AAI Security</button>
-          <button type="button" class="tab" data-tab="raw">Raw JSON</button>
-        </nav>
+          <div id="workbench-empty" class="workbench-empty">
+            <h2>Results</h2>
+            <p class="muted">Run <strong>Analyze</strong> to compile, build the IR graph, detect CWEs, and populate the tabs below.</p>
+          </div>
 
-        <div class="tab-panels">
-          <section class="tab-panel active" id="panel-overview"></section>
-          <section class="tab-panel" id="panel-findings"></section>
-          <section class="tab-panel" id="panel-localization"></section>
-          <section class="tab-panel" id="panel-explain"></section>
-          <section class="tab-panel" id="panel-diagnostics"></section>
-          <section class="tab-panel" id="panel-learn"></section>
-          <section class="tab-panel" id="panel-repair"></section>
-          <section class="tab-panel" id="panel-evidence"></section>
-          <section class="tab-panel" id="panel-graph">
-            <div class="graph-toolbar">
-              <span id="graph-stats" class="muted"></span>
-              <button type="button" class="btn btn-ghost btn-sm" id="graph-reset">Reset view</button>
+          <div id="pipeline-panel" class="pipeline-panel hidden">
+            <h3 class="pipeline-heading">Compiler pipeline</h3>
+            <nav id="pipeline-rail" class="pipeline-rail" aria-label="Pipeline stages"></nav>
+            <pre id="pipeline-detail" class="pipeline-detail code-block"></pre>
+            <div id="attack-sim-panel" class="attack-sim-panel hidden">
+              <h4>Attack simulation (conceptual)</h4>
+              <p id="attack-sim-text" class="attack-sim-text"></p>
+              <button type="button" class="btn btn-ghost btn-sm" id="attack-sim-dismiss">Dismiss</button>
             </div>
-            <div id="graph-container" class="graph-container"></div>
-            <p class="graph-legend muted">
-              <span class="legend-dot block"></span> basic block
-              <span class="legend-dot inst"></span> instruction
-              <span class="legend-dot vuln"></span> vulnerable / evidence
-            </p>
-          </section>
-          <section class="tab-panel" id="panel-source">
-            <pre id="source-view" class="code-block"></pre>
-          </section>
-          <section class="tab-panel" id="panel-agent">
-            <div class="card">
-              <h3>Gemini agent</h3>
-              <p class="muted">Requires <code>GEMINI_API_KEY</code> on the server. All prompts pass through the AAI security layer.</p>
-              <div class="preset-row">
-                <span class="muted">Presets:</span>
-                <button type="button" class="btn btn-ghost btn-sm preset-btn" data-preset="benign">Benign scan</button>
-                <button type="button" class="btn btn-ghost btn-sm preset-btn attack-preset" data-preset="attack">Prof. injection (A1)</button>
+          </div>
+
+          <div id="dashboard" class="dashboard hidden workbench-dashboard">
+            <header class="dash-header">
+              <div>
+                <h2 id="source-title">—</h2>
+                <p id="source-path" class="muted mono"></p>
               </div>
-              <textarea id="agent-message" class="agent-input" rows="3" placeholder="e.g. Scan this file, explain CWE findings, and suggest whether fix is appropriate."></textarea>
-              <div class="agent-actions">
-                <button type="button" class="btn btn-primary" id="agent-run">Run agent</button>
-                <label class="checkbox inline">
-                  <input type="checkbox" id="agent-show-raw" />
-                  <span>Show raw JSON</span>
-                </label>
-              </div>
-            </div>
-            <div id="agent-summary" class="agent-summary hidden"></div>
-            <div id="agent-artifacts"></div>
-            <pre id="agent-output" class="code-block hidden"></pre>
-          </section>
-          <section class="tab-panel" id="panel-aai">
-            <div class="card">
-              <h3>Agentic AI security suite</h3>
-              <p class="muted">Simulated attacks against the agent boundary — input guard, tool gate, output guard — with detection metrics and audit log.</p>
-              <button type="button" class="btn btn-primary" id="aai-run" style="width:auto">Run attack simulation</button>
-              <button type="button" class="btn btn-ghost btn-sm" id="aai-refresh" style="margin-left:0.5rem">Refresh report</button>
-            </div>
-            <div id="aai-metrics" class="metrics"></div>
-            <div id="aai-results" class="table-wrap"></div>
-            <div class="card">
-              <h3>Audit log (recent)</h3>
-              <pre id="aai-log" class="code-block aai-log"></pre>
-            </div>
-          </section>
-          <section class="tab-panel" id="panel-raw">
-            <pre id="raw-json" class="code-block"></pre>
-          </section>
-        </div>
-      </div>
+              <div class="status-pill" id="overall-status">—</div>
+            </header>
 
-      <div id="loading" class="loading hidden">
-        <div class="spinner"></div>
-        <p>Running SecureCC analysis…</p>
+            <div class="metrics" id="metrics"></div>
+
+            <nav class="tabs" role="tablist">
+              <button type="button" class="tab active" data-tab="overview">Overview</button>
+              <button type="button" class="tab" data-tab="findings">Findings</button>
+              <button type="button" class="tab" data-tab="localization">Localization</button>
+              <button type="button" class="tab" data-tab="explain">Explain</button>
+              <button type="button" class="tab" data-tab="diagnostics">Diagnostics</button>
+              <button type="button" class="tab" data-tab="learn">Learn</button>
+              <button type="button" class="tab" data-tab="repair">Repair</button>
+              <button type="button" class="tab" data-tab="evidence">Evidence</button>
+              <button type="button" class="tab" data-tab="graph">IR Graph</button>
+              <button type="button" class="tab" data-tab="source">Source</button>
+              <button type="button" class="tab" data-tab="agent">AI analysis</button>
+              <button type="button" class="tab" data-tab="aai">AAI Security</button>
+              <button type="button" class="tab" data-tab="raw">Raw JSON</button>
+            </nav>
+
+            <div class="tab-panels">
+              <section class="tab-panel active" id="panel-overview"></section>
+              <section class="tab-panel" id="panel-findings"></section>
+              <section class="tab-panel" id="panel-localization"></section>
+              <section class="tab-panel" id="panel-explain"></section>
+              <section class="tab-panel" id="panel-diagnostics"></section>
+              <section class="tab-panel" id="panel-learn"></section>
+              <section class="tab-panel" id="panel-repair"></section>
+              <section class="tab-panel" id="panel-evidence"></section>
+              <section class="tab-panel" id="panel-graph">
+                <div class="graph-toolbar">
+                  <span id="graph-stats" class="muted"></span>
+                  <button type="button" class="btn btn-ghost btn-sm" id="graph-reset">Reset view</button>
+                </div>
+                <div id="graph-container" class="graph-container"></div>
+                <p class="graph-legend muted">
+                  <span class="legend-dot block"></span> basic block
+                  <span class="legend-dot inst"></span> instruction
+                  <span class="legend-dot vuln"></span> vulnerable / evidence
+                </p>
+              </section>
+              <section class="tab-panel" id="panel-source">
+                <pre id="source-view" class="code-block"></pre>
+              </section>
+              <section class="tab-panel" id="panel-agent">
+                <div class="card">
+                  <h3>AI analysis</h3>
+                  <p class="muted">Configure credentials in project <code>.env</code>. Scoped to this codebase only.</p>
+                  <div class="preset-row">
+                    <span class="muted">Presets:</span>
+                    <button type="button" class="btn btn-ghost btn-sm preset-btn" data-preset="benign">Benign scan</button>
+                    <button type="button" class="btn btn-ghost btn-sm preset-btn attack-preset" data-preset="attack">Prof. injection (A1)</button>
+                  </div>
+                  <textarea id="agent-message" class="agent-input" rows="3" placeholder="e.g. Scan this file, explain CWE findings, and suggest whether fix is appropriate."></textarea>
+                  <div class="agent-actions">
+                    <button type="button" class="btn btn-primary" id="agent-run">Run agent</button>
+                    <label class="checkbox inline">
+                      <input type="checkbox" id="agent-show-raw" />
+                      <span>Show raw JSON</span>
+                    </label>
+                  </div>
+                </div>
+                <div id="agent-summary" class="agent-summary hidden"></div>
+                <div id="agent-artifacts"></div>
+                <pre id="agent-output" class="code-block hidden"></pre>
+              </section>
+              <section class="tab-panel" id="panel-aai">
+                <div class="card">
+                  <h3>Agentic AI security suite</h3>
+                  <p class="muted">Simulated attacks against the agent boundary — input guard, tool gate, output guard — with detection metrics and audit log.</p>
+                  <button type="button" class="btn btn-primary" id="aai-run" style="width:auto">Run attack simulation</button>
+                  <button type="button" class="btn btn-ghost btn-sm" id="aai-refresh" style="margin-left:0.5rem">Refresh report</button>
+                </div>
+                <div id="aai-metrics" class="metrics"></div>
+                <div id="aai-results" class="table-wrap"></div>
+                <div class="card">
+                  <h3>Audit log (recent)</h3>
+                  <pre id="aai-log" class="code-block aai-log"></pre>
+                </div>
+              </section>
+              <section class="tab-panel" id="panel-raw">
+                <pre id="raw-json" class="code-block"></pre>
+              </section>
+            </div>
+          </div>
+        </section>
       </div>
 
       <div id="toast" class="toast hidden" role="alert"></div>
@@ -160,6 +202,9 @@
   </div>
 
   <script src="/static/graph.js"></script>
+  <script src="/static/editor_lines.js"></script>
   <script src="/static/app.js"></script>
+  <script src="/static/semantic_lint.js"></script>
+  <script src="/static/workbench.js"></script>
 </body>
 </html>

@@ -59,14 +59,32 @@ The central design principle is:
 
 ## Vulnerability Detection
 
-The current deterministic detector supports:
+The deterministic detector supports (each with a `test_files/test_*` fixture; see `/api/vulnerability-catalog` in the web UI):
 
-- CWE-190 — Integer Overflow
-- CWE-191 — Integer Underflow
-- CWE-369 — Divide by Zero
-- CWE-476 — NULL Pointer Dereference
+| CWE | Title | Typical compiler stage |
+|-----|--------|-------------------------|
+| CWE-190 | Integer Overflow | LLVM IR graph |
+| CWE-191 | Integer Underflow | LLVM IR graph |
+| CWE-369 | Divide by Zero | LLVM IR graph |
+| CWE-476 | NULL Pointer Dereference | LLVM IR graph |
+| CWE-121 | Stack-based Buffer Overflow | LLVM IR graph |
+| CWE-134 | Externally-Controlled Format String | LLVM IR graph |
+| CWE-457 | Uninitialized Variable | Clang `-Wall` diagnostic |
+| CWE-787 | Out-of-bounds Write | Clang `-Wall` diagnostic |
+| CWE-122 | Heap-based Buffer Overflow | LLVM IR graph |
+| CWE-125 | Out-of-bounds Read | Clang bounds + IR GEP heuristics |
+| CWE-789 | Excessive allocation (OOM risk) | LLVM IR graph |
+| CWE-400 | Uncontrolled resource / OOM | LLVM IR graph |
+| CWE-415 | Double free | LLVM IR graph |
+| CWE-416 | Use after free | LLVM IR graph |
+| CWE-401 | Memory leak | LLVM IR graph |
+| CWE-835 | Infinite loop | LLVM IR CFG (+ Clang when reported) |
+| CWE-833 | Deadlock (nested locks) | LLVM IR graph |
+| CWE-667 | Double mutex lock | LLVM IR graph |
 
-Detection operates on LLVM IR and produces structured security findings.
+Multi-vulnerability fixtures: `test_06`–`test_10`, `test_15`–`test_16`, `test_23`, `test_27_logic_combo.c`. Per-CWE fixtures: `test_11`–`test_26` (see `/api/vulnerability-catalog`).
+
+Every finding includes `compiler_stage` / `compiler_stage_label` (frontend error, compiler warning, LLVM IR emission, or IR graph analysis).
 
 ---
 
@@ -419,6 +437,12 @@ securecc web
 
 Open [http://127.0.0.1:5050](http://127.0.0.1:5050) in your browser.
 
+### Journey mode (step-by-step)
+
+In the sidebar, switch **Classic → Journey**, pick or upload a `.c` file, then **Start journey**. The UI walks through compile → IR parse → graph → detection → per-finding review → repair plan. **Approve & verify fix** runs the deterministic repair pipeline; **Continue** advances only when you choose. Use **Ask** (or optional text-to-speech) for grounded explanations such as “How did you catch this?”
+
+API: `POST /api/journey/start` `{ "path": "..." }`, `POST /api/journey/advance` `{ "session_id", "action": "continue|approve_fix|reject_fix|skip_fix|restart|ask", "question"?: "..." }`.
+
 ## Agentic AI security (PBL)
 
 Simulate prompt-injection / policy-bypass attacks, block malicious tool use, and print detection metrics:
@@ -431,15 +455,16 @@ securecc aai-security
 
 See `docs/PBL_AAI_SECURITY.md` and artifacts under `build/aai_security/`.
 
-### Gemini agent
+### Groq agent
 
 ```bash
-export GEMINI_API_KEY="your-key"
-python -m pip install google-generativeai
+cp .env.example .env
+# Edit .env and set GROQ_API_KEY=...
+python -m pip install groq python-dotenv
 securecc agent test_files/test_02_cwe190.c -m "Scan and explain the security issues."
 ```
 
-Or use the **Gemini Agent** tab in `securecc web` (same API key on the server process).
+`securecc` loads `.env` from the project root automatically (variables already set in the shell take precedence). Or use the **AI analysis** tab in `securecc web`.
 
 ---
 

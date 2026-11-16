@@ -25,7 +25,12 @@ def _jsonable(obj: Any) -> Any:
     return str(obj)
 
 
-def run_tool(tool: str, source: Path) -> dict[str, Any]:
+def run_tool(
+    tool: str,
+    source: Path,
+    *,
+    advisory_issues: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     tool = tool.strip().lower()
     source = Path(source).resolve()
 
@@ -72,6 +77,26 @@ def run_tool(tool: str, source: Path) -> dict[str, Any]:
             payload = _jsonable(result)
             payload["tool"] = "fix"
             return payload
+
+    if tool == "catalog_heal":
+        from src.V2.heal.catalog_heal import catalog_heal_source
+
+        result = catalog_heal_source(
+            source,
+            max_ai_attempts=2,
+            advisory_issues=advisory_issues or [],
+        )
+        payload = _jsonable(result)
+        payload["tool"] = "catalog_heal"
+        return payload
+
+    if tool == "ai_source_review":
+        from .ai_source_review import ai_source_review as run_ai_review
+        from ..languages import language_id_from_suffix
+
+        lang = language_id_from_suffix(source.suffix)
+        payload = run_ai_review(source, language=lang)
+        return payload
 
     if tool == "rescan":
         return run_tool("scan", source)

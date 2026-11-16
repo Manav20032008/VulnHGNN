@@ -1,10 +1,14 @@
 import re
 
 from ..analysis.finding import SecurityFinding
+from ..analysis.heap_ir import is_heap_alloc_call
+from .base import BaseDetector
 
 
-class CWE476Detector:
+class CWE476Detector(BaseDetector):
     cwe_id = "CWE-476"
+    title = "NULL Pointer Dereference"
+    severity = "HIGH"
 
     ALLOCATORS = {
         "malloc",
@@ -62,8 +66,10 @@ class CWE476Detector:
             if not value:
                 continue
 
-            if any(f"@{name}" in text for name in self.ALLOCATORS):
-                result.append((value, node))
+            if not is_heap_alloc_call(text):
+                continue
+
+            result.append((value, node))
 
         return result
 
@@ -463,6 +469,7 @@ class CWE476Detector:
                         instruction=data.get("text", ""),
                         detector="CWE476Detector",
                         node_id=node,
+                        compiler_stage=self.compiler_stage,
                     )
                 )
 

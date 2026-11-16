@@ -20,11 +20,16 @@ def main():
     print("=" * 88)
 
     cases = [
-        ("clean_scan", "test_files/test_01_clean.c", []),
-        ("cwe190_scan", "test_files/test_02_cwe190.c", ["CWE-190"]),
-        ("cwe191_scan", "test_files/test_03_cwe191.c", ["CWE-191"]),
-        ("cwe369_scan", "test_files/test_04_cwe369.c", ["CWE-369"]),
-        ("cwe476_scan", "test_files/test_05_cwe476.c", ["CWE-476"]),
+        ("clean_scan_c", "test_files/test_01_clean.c", []),
+        ("clean_scan_cpp", "test_files/test_01_clean.cpp", []),
+        ("cwe190_scan_c", "test_files/test_02_cwe190.c", ["CWE-190"]),
+        ("cwe190_scan_cpp", "test_files/test_02_cwe190.cpp", ["CWE-190"]),
+        ("cwe191_scan_c", "test_files/test_03_cwe191.c", ["CWE-191"]),
+        ("cwe191_scan_cpp", "test_files/test_03_cwe191.cpp", ["CWE-191"]),
+        ("cwe369_scan_c", "test_files/test_04_cwe369.c", ["CWE-369"]),
+        ("cwe369_scan_cpp", "test_files/test_04_cwe369.cpp", ["CWE-369"]),
+        ("cwe476_scan_c", "test_files/test_05_cwe476.c", ["CWE-476"]),
+        ("cwe476_scan_cpp", "test_files/test_05_cwe476.cpp", ["CWE-476"]),
     ]
 
     passed = 0

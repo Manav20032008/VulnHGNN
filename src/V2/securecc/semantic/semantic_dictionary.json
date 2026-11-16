@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "categories": {
+    "TEXT": {
+      "family": "TEXT",
+      "description": "textual data",
+      "names": ["name", "title", "message", "label", "caption", "description", "address", "username"]
+    },
+    "EMAIL": {
+      "family": "TEXT",
+      "description": "an email address",
+      "names": ["email", "mail", "mailbox"]
+    },
+    "PHONE": {
+      "family": "TEXT",
+      "description": "a phone number",
+      "names": ["phone", "mobile", "cell", "telephone", "fax"]
+    },
+    "SECRET": {
+      "family": "TEXT",
+      "description": "a secret or credential",
+      "names": ["password", "passwd", "secret", "token", "apikey", "api_key"]
+    },
+    "URL": {
+      "family": "TEXT",
+      "description": "a URL or link",
+      "names": ["url", "uri", "link", "href", "endpoint"]
+    },
+    "FILE": {
+      "family": "TEXT",
+      "description": "a file name or path",
+      "names": ["filename", "filepath", "path", "directory", "folder"]
+    },
+    "COUNT": {
+      "family": "INTEGER",
+      "description": "a whole-number count",
+      "names": ["age", "count", "quantity", "attempt", "retry", "year", "month", "day", "total", "limit"]
+    },
+    "ID": {
+      "family": "INTEGER",
+      "description": "an identifier",
+      "names": ["id", "uid", "userid", "user_id", "serial"]
+    },
+    "MONEY": {
+      "family": "FLOAT",
+      "description": "a financial value",
+      "names": ["price", "cost", "amount", "salary", "balance", "tax", "fee"]
+    },
+    "RATE": {
+      "family": "FLOAT",
+      "description": "a ratio or average",
+      "names": ["average", "avg", "ratio", "rate", "percent", "score"]
+    },
+    "DIMENSION": {
+      "family": "FLOAT",
+      "description": "a numeric measurement",
+      "names": ["width", "height", "length", "depth", "size", "weight"]
+    },
+    "BOOLEAN": {
+      "family": "BOOL",
+      "description": "a boolean state",
+      "names": ["active", "enabled", "valid", "exists", "success", "visible", "open"]
+    },
+    "DATE": {
+      "family": "TEXT",
+      "description": "a date or time value",
+      "names": ["date", "time", "timestamp", "deadline", "birthday"]
+    },
+    "STATUS": {
+      "family": "TEXT",
+      "description": "a status value",
+      "names": ["status", "state", "phase", "mode"]
+    }
+  },
+  "compounds": {
+    "phonenumber": { "category": "PHONE", "strength": 0.95, "ambiguous": false },
+    "emailaddress": { "category": "EMAIL", "strength": 0.96, "ambiguous": false },
+    "userpassword": { "category": "SECRET", "strength": 0.94, "ambiguous": false }
+  },
+  "overrides": {
+    "number": { "categories": ["COUNT", "PHONE"], "strength": 0.4 },
+    "code": { "categories": ["TEXT", "ID"], "strength": 0.4 },
+    "status": { "categories": ["STATUS", "TEXT"], "strength": 0.4 }
+  },
+  "bool_prefixes": ["is", "has", "can", "should", "needs"],
+  "count_markers": ["count", "num", "number", "qty", "quantity"],
+  "modifiers": { "average": "RATE", "avg": "RATE", "ratio": "RATE", "total": "COUNT" },
+  "abbreviations": { "qty": "quantity", "num": "number", "msg": "message" },
+  "ignore_names": ["i", "j", "k", "n", "m", "x", "y", "z", "it", "tmp"]
+}

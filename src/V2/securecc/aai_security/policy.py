@@ -35,6 +35,8 @@ class AgentSecurityPolicy:
                 "diagnose",
                 "learn",
                 "fix",
+                "catalog_heal",
+                "ai_source_review",
                 "verify",
                 "benchmark",
                 "rescan",

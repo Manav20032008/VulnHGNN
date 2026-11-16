@@ -45,7 +45,9 @@ def _load_explainability():
 
 
 def compile_to_ir(source: Path) -> Path:
-    compiler = "clang++" if source.suffix.lower() == ".cpp" else "clang"
+    from .languages import compiler_for_source, is_cpp_suffix
+
+    compiler = compiler_for_source(source)
 
     if not source.exists():
         raise FileNotFoundError(f"source file not found: {source}")
@@ -68,6 +70,8 @@ def compile_to_ir(source: Path) -> Path:
         "-o",
         str(ll_path),
     ]
+    if is_cpp_suffix(source.suffix):
+        cmd[1:1] = ["-std=c++17"]
 
     result = subprocess.run(cmd, text=True, capture_output=True)
 
@@ -110,7 +114,24 @@ def analyze_source(source: Path) -> dict:
 
         DetectionEngine = _load_detection()
         engine = DetectionEngine()
-        findings = engine.analyze(sample)
+        findings = list(engine.analyze(sample))
+
+        from .compile_diagnostics import collect_compiler_warnings
+
+        diag_findings = collect_compiler_warnings(source)
+        existing_keys = {
+            (f.cwe_id, f.instruction, getattr(f.location, "line", None))
+            for f in findings
+        }
+        for item in diag_findings:
+            key = (
+                item.cwe_id,
+                item.instruction,
+                getattr(item.location, "line", None),
+            )
+            if key not in existing_keys:
+                findings.append(item)
+                existing_keys.add(key)
 
         VulnerabilityLocalizer = _load_localization()
         localized = VulnerabilityLocalizer().localize(sample, findings)
@@ -119,9 +140,23 @@ def analyze_source(source: Path) -> dict:
         cwes = list(dict.fromkeys(x.cwe_id for x in findings))
         explanations = ExplainabilityEngine().explain_all(graph, cwes)
 
+        llvm_ir_preview = ""
+        llvm_ir_line_count = 0
+        try:
+            ir_lines = ll_path.read_text(encoding="utf-8", errors="replace").splitlines()
+            llvm_ir_line_count = len(ir_lines)
+            head = ir_lines[:56]
+            llvm_ir_preview = "\n".join(head)
+            if llvm_ir_line_count > len(head):
+                llvm_ir_preview += "\n; … (truncated)"
+        except OSError:
+            pass
+
         return {
             "source": str(source),
             "llvm_ir": str(ll_path),
+            "llvm_ir_preview": llvm_ir_preview,
+            "llvm_ir_line_count": llvm_ir_line_count,
             "graph": graph,
             "node_count": graph.number_of_nodes(),
             "edge_count": graph.number_of_edges(),

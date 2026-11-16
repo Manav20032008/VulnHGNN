@@ -13,6 +13,23 @@ from ..explain import explain_source
 from ..diagnostics import diagnose_source
 from ..learn import learn_source
 from ..fix import fix_source
+from ..languages import (
+    LANGUAGE_CHOICES,
+    SUPPORTED_SUFFIXES,
+    is_python_path,
+    language_id_from_suffix,
+    validate_supported_suffix,
+    workspace_name_for_language,
+)
+from ..python_scan import analyze_python_source, python_analysis_bundle
+from ..pipeline_stages import build_engine_pipeline_stages, build_python_pipeline_stages
+from ..scan_merge import (
+    build_display_scan,
+    ensure_healed_banner,
+    merge_explain_payload,
+    should_gap_fill_merge,
+    source_looks_healed,
+)
 from .serializers import _to_jsonable, analysis_bundle
 
 
@@ -47,50 +64,305 @@ def _list_samples(root: Path) -> list[dict[str, str]]:
     test_dir = root / "test_files"
     samples: list[dict[str, str]] = []
     if test_dir.is_dir():
-        for path in sorted(test_dir.glob("test_*.c")):
+        paths: list[Path] = []
+        for pattern in ("test_*.c", "test_*.cpp"):
+            paths.extend(test_dir.glob(pattern))
+        for path in sorted(paths, key=lambda p: (p.stem.lower(), p.suffix.lower())):
             rel = path.relative_to(root).as_posix()
-            samples.append({"id": rel, "label": path.name, "path": rel})
+            lang = "C++" if path.suffix.lower() == ".cpp" else "C"
+            samples.append(
+                {
+                    "id": rel,
+                    "label": path.name,
+                    "path": rel,
+                    "language": lang,
+                }
+            )
     return samples
 
 
+def _pipeline_stages(analysis: dict, scan: dict[str, Any]) -> list[dict[str, Any]]:
+    return build_engine_pipeline_stages(analysis, scan)
+
+
+def _pipeline_stages_python(analysis: dict, scan: dict[str, Any]) -> list[dict[str, Any]]:
+    return build_python_pipeline_stages(analysis, scan)
+
+
+def _build_compile_failed_payload(
+    source: Path,
+    base_source: dict[str, Any],
+    error_message: str,
+    *,
+    include_fix: bool,
+) -> dict[str, Any]:
+    from src.V2.detection.catalog import catalog_payload
+    from ..compile_diagnostics import collect_compiler_diagnostics
+    from ..live_lint import run_live_lint
+    from ..source_heuristics import scan_source_heuristics
+
+    lang = language_id_from_suffix(source.suffix)
+    compile_diags = collect_compiler_diagnostics(source)
+    heuristics = scan_source_heuristics(base_source.get("content") or "", language=lang)
+    live = run_live_lint(base_source.get("content") or "", language=lang)
+    merged_compile = _merge_compile_diags(compile_diags, heuristics, error_message)
+
+    empty_scan: dict[str, Any] = {
+        "tool": "VulnHGNN 2.0 SecureCC",
+        "stage": "scan",
+        "source": str(source),
+        "graph": {"nodes": 0, "edges": 0},
+        "finding_count": 0,
+        "cwes": [],
+        "findings": [],
+        "localization": [],
+        "explanations": [],
+    }
+
+    return {
+        "meta": version_report(),
+        "vulnerability_catalog": catalog_payload(),
+        "source": base_source,
+        "compile": {
+            "ok": False,
+            "message": error_message,
+            "diagnostics": merged_compile,
+            "live_diagnostics": live.get("diagnostics") or [],
+        },
+        "scan": empty_scan,
+        "graph": None,
+        "explain": {
+            "tool": "VulnHGNN 2.0 SecureCC",
+            "command": "explain",
+            "source": str(source),
+            "finding_count": 0,
+            "explanations": [],
+            "evidence_report": None,
+            "note": "Fix compile errors, then re-run Analyze for IR-based CWE detection.",
+        },
+        "diagnostics": {
+            "tool": "VulnHGNN 2.0 SecureCC",
+            "command": "diagnose",
+            "source": str(source),
+            "finding_count": 0,
+            "diagnostics": [],
+        },
+        "learn": {
+            "tool": "VulnHGNN 2.0 SecureCC",
+            "command": "learn",
+            "source": str(source),
+            "finding_count": 0,
+            "lessons": [],
+        },
+        "fix": None if not include_fix else {"status": "SKIPPED", "message": "Compile failed — repair not run."},
+        "pipeline": {
+            "stages": [
+                {
+                    "id": "compile",
+                    "label": "Compile → LLVM IR",
+                    "status": "failed",
+                    "summary": "Compilation failed",
+                    "detail": error_message[:2000],
+                }
+            ]
+        },
+        "analysis_status": "compile_failed",
+    }
+
+
+def _merge_compile_diags(
+    compiler: list[dict],
+    heuristics: list[dict],
+    error_message: str,
+) -> list[dict]:
+    seen: set[tuple[Any, ...]] = set()
+    out: list[dict] = []
+    for item in compiler + heuristics:
+        key = (item.get("line"), item.get("message", "")[:100])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    if not out and error_message:
+        out.append(
+            {
+                "line": 1,
+                "column": 1,
+                "category": "ERROR",
+                "title": "Compile failed",
+                "message": error_message.splitlines()[0][:500],
+                "source": "compiler",
+            }
+        )
+    return sorted(out, key=lambda x: (x.get("line") or 0, x.get("column") or 0))
+
+
 def build_dashboard_payload(source: Path, *, include_fix: bool) -> dict[str, Any]:
-    analysis = analyze_source(source)
+    from src.V2.detection.catalog import catalog_payload
+
+    content = source.read_text(encoding="utf-8", errors="replace")
+    base_source = {
+        "path": str(source),
+        "name": source.name,
+        "content": content,
+        "language": language_id_from_suffix(source.suffix),
+    }
+
+    if is_python_path(source):
+        if include_fix:
+            include_fix = False
+        analysis = analyze_python_source(source)
+        bundle = python_analysis_bundle(analysis)
+        from src.V2.securecc.agent.ai_source_review import ai_source_review
+
+        ai_review = ai_source_review(source, language="python")
+        merged_scan = build_display_scan(bundle["scan"], ai_review, source_text=content)
+        payload: dict[str, Any] = {
+            "meta": version_report(),
+            "vulnerability_catalog": catalog_payload(),
+            "source": base_source,
+            "scan": merged_scan,
+            "graph": None,
+            "explain": {
+                "tool": "VulnHGNN 2.0 SecureCC",
+                "command": "explain",
+                "source": str(source),
+                "finding_count": merged_scan.get("finding_count", 0),
+                "explanations": merged_scan.get("explanations", []),
+                "evidence_report": None,
+            },
+            "diagnostics": {
+                "tool": "VulnHGNN 2.0 SecureCC",
+                "command": "diagnose",
+                "source": str(source),
+                "finding_count": 0,
+                "diagnostics": [],
+                "note": "Diagnostics pipeline is C/C++ only; Python uses AST + Bandit findings.",
+            },
+            "learn": {
+                "tool": "VulnHGNN 2.0 SecureCC",
+                "command": "learn",
+                "source": str(source),
+                "finding_count": merged_scan.get("finding_count", 0),
+                "lessons": [],
+                "note": "Lesson bank is optimized for C/C++ CWEs.",
+            },
+            "fix": None,
+            "pipeline": {
+                "stages": build_python_pipeline_stages(analysis, merged_scan)
+            },
+            "compile": {"ok": True, "note": "Python — no LLVM compile step"},
+            "analysis_status": "ok",
+        }
+        return payload
+
+    try:
+        analysis = analyze_source(source)
+    except RuntimeError as exc:
+        return _build_compile_failed_payload(source, base_source, str(exc), include_fix=include_fix)
+
     bundle = analysis_bundle(analysis)
 
     explain = explain_source(source)
     diagnostics = diagnose_source(source)
     learn = learn_source(source)
 
+    from src.V2.detection.catalog import catalog_payload
+    from src.V2.securecc.agent.ai_source_review import ai_source_review
+
+    lang = language_id_from_suffix(source.suffix)
+    engine_scan = bundle["scan"]
+    ai_review: dict[str, Any] | None = None
+    if include_fix and not source_looks_healed(content):
+        ai_review = ai_source_review(source, language=lang)
+        display_scan = dict(engine_scan)
+    elif include_fix:
+        display_scan = dict(engine_scan)
+    elif should_gap_fill_merge(engine_scan, content):
+        ai_review = ai_source_review(source, language=lang)
+        display_scan = build_display_scan(engine_scan, ai_review, source_text=content)
+    else:
+        display_scan = dict(engine_scan)
+
+    explain_payload = merge_explain_payload(_to_jsonable(explain), display_scan)
+    heal_blob: dict[str, Any] | None = None
+
     payload: dict[str, Any] = {
         "meta": version_report(),
+        "vulnerability_catalog": catalog_payload(),
         "source": {
-            "path": str(source),
-            "name": source.name,
-            "content": source.read_text(encoding="utf-8", errors="replace"),
+            **base_source,
         },
-        "scan": bundle["scan"],
+        "scan": display_scan,
         "graph": bundle["graph"],
-        "explain": _to_jsonable(explain),
+        "explain": explain_payload,
         "diagnostics": _to_jsonable(diagnostics),
         "learn": _to_jsonable(learn),
         "fix": None,
+        "pipeline": {
+            "stages": build_engine_pipeline_stages(
+                analysis,
+                display_scan,
+                heal=heal_blob,
+            )
+        },
+        "compile": {"ok": True},
+        "analysis_status": "ok",
     }
 
     if include_fix:
-        with tempfile.TemporaryDirectory(prefix="securecc_web_") as tmp:
-            fix_result = fix_source(
+        from src.V2.heal.catalog_heal import catalog_heal_source
+
+        if source_looks_healed(content):
+            payload["fix"] = {
+                "status": "SKIPPED",
+                "message": (
+                    "Source is already marked as healed. Uncheck Catalog heal and run Analyze "
+                    "to confirm engine findings only."
+                ),
+                "command": "catalog_heal",
+                "patched_source": content,
+            }
+        else:
+            heal_result = catalog_heal_source(
                 source,
-                output_dir=Path(tmp),
-                keep_ir=True,
-                build_artifact=True,
+                max_ai_attempts=2,
+                advisory_issues=(ai_review or {}).get("issues") or [],
             )
-            payload["fix"] = _to_jsonable(fix_result)
+            if str(heal_result.get("status", "")).upper() == "VERIFIED":
+                patched = ensure_healed_banner(str(heal_result.get("patched_source") or content))
+                heal_result = dict(heal_result)
+                heal_result["patched_source"] = patched
+            payload["fix"] = _to_jsonable(heal_result)
+            payload["fix"]["command"] = "catalog_heal"
+            heal_blob = payload["fix"]
+            with tempfile.TemporaryDirectory(prefix="securecc_web_ir_") as tmp:
+                try:
+                    ir_fix = fix_source(
+                        source,
+                        output_dir=Path(tmp),
+                        keep_ir=True,
+                        build_artifact=False,
+                    )
+                    payload["fix"]["ir_repair"] = _to_jsonable(ir_fix)
+                except Exception as exc:
+                    payload["fix"]["ir_repair"] = {"status": "SKIPPED", "message": str(exc)}
+            payload["pipeline"] = {
+                "stages": build_engine_pipeline_stages(
+                    analysis,
+                    display_scan,
+                    heal=heal_blob,
+                )
+            }
 
     return payload
 
 
 def create_app(project_root: Path | None = None) -> Flask:
     root = (project_root or _project_root()).resolve()
+    from ..env_loader import load_project_env
+
+    load_project_env(root)
     uploads = _uploads_dir(root)
 
     app = Flask(
@@ -106,6 +378,12 @@ def create_app(project_root: Path | None = None) -> Flask:
     def index():
         return render_template("index.html", version=version_report())
 
+    @app.route("/api/vulnerability-catalog")
+    def api_vulnerability_catalog():
+        from src.V2.detection.catalog import catalog_payload
+
+        return jsonify(catalog_payload())
+
     @app.route("/api/meta")
     def api_meta():
         clang_ok = False
@@ -115,11 +393,16 @@ def create_app(project_root: Path | None = None) -> Flask:
             clang_ok = shutil.which("clang") is not None
         except Exception:
             pass
+        from ..groq_config import groq_status
+
         return jsonify(
             {
                 **version_report(),
                 "project_root": str(root),
                 "clang_available": clang_ok,
+                "supported_languages": list(LANGUAGE_CHOICES),
+                "supported_suffixes": sorted(SUPPORTED_SUFFIXES),
+                **groq_status(root),
             }
         )
 
@@ -127,31 +410,143 @@ def create_app(project_root: Path | None = None) -> Flask:
     def api_samples():
         return jsonify({"samples": _list_samples(root)})
 
-    @app.route("/api/analyze", methods=["POST"])
-    def api_analyze():
-        data = request.get_json(silent=True) or {}
-        path_str = data.get("path") or request.form.get("path")
-        include_fix = bool(data.get("include_fix", False))
+    _EDITOR_DEFAULT = "editor_workspace.c"
 
+    def _check_suffix(name: str) -> None:
+        validate_supported_suffix(Path(name).suffix)
+
+    @app.route("/api/source")
+    def api_source():
+        path_str = request.args.get("path")
         if not path_str:
             return jsonify({"error": "path is required"}), 400
-
         try:
             source = _resolve_source(str(path_str), root, uploads)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
-
         if not source.exists():
             return jsonify({"error": f"file not found: {source}"}), 404
-        if source.suffix.lower() not in {".c", ".cc", ".cpp", ".cxx"}:
-            return jsonify({"error": "only C/C++ source files are supported"}), 400
+        try:
+            _check_suffix(source.name)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        rel = source.relative_to(root).as_posix()
+        return jsonify(
+            {
+                "path": rel,
+                "name": source.name,
+                "content": source.read_text(encoding="utf-8", errors="replace"),
+                "language": language_id_from_suffix(source.suffix),
+            }
+        )
+
+    @app.route("/api/analyze", methods=["POST"])
+    def api_analyze():
+        data = request.get_json(silent=True) or {}
+        path_str = data.get("path") or request.form.get("path")
+        source_text = data.get("source")
+        filename = data.get("filename") or _EDITOR_DEFAULT
+        language = (data.get("language") or "").strip().lower()
+        include_fix = bool(data.get("include_fix", False))
+
+        if source_text is not None:
+            if not isinstance(source_text, str):
+                return jsonify({"error": "source must be a string"}), 400
+            if language:
+                filename = workspace_name_for_language(language)
+            name = Path(str(filename)).name
+            try:
+                _check_suffix(name)
+            except ValueError as exc:
+                return jsonify({"error": str(exc)}), 400
+            dest = uploads / name
+            dest.write_text(source_text, encoding="utf-8")
+            source = dest
+        elif path_str:
+            try:
+                source = _resolve_source(str(path_str), root, uploads)
+            except ValueError as exc:
+                return jsonify({"error": str(exc)}), 400
+
+            if not source.exists():
+                return jsonify({"error": f"file not found: {source}"}), 404
+            try:
+                _check_suffix(source.name)
+            except ValueError as exc:
+                return jsonify({"error": str(exc)}), 400
+        else:
+            return jsonify({"error": "path or source is required"}), 400
+
+        if is_python_path(source):
+            include_fix = False
 
         try:
             payload = build_dashboard_payload(source, include_fix=include_fix)
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
 
+        if isinstance(payload.get("source"), dict):
+            payload["source"]["language"] = language_id_from_suffix(source.suffix)
         return jsonify(payload)
+
+    @app.route("/api/lint/live", methods=["POST"])
+    def api_live_lint():
+        data = request.get_json(silent=True) or {}
+        source = data.get("source")
+        language = (data.get("language") or "c").strip().lower()
+        if not isinstance(source, str):
+            return jsonify({"error": "source must be a string"}), 400
+        try:
+            from ..live_lint import run_live_lint
+
+            return jsonify(run_live_lint(source, language=language))
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
+    @app.route("/api/lint/semantic", methods=["POST"])
+    def api_semantic_lint():
+        data = request.get_json(silent=True) or {}
+        source = data.get("source")
+        language = (data.get("language") or "c").strip().lower()
+        if not isinstance(source, str):
+            return jsonify({"error": "source must be a string"}), 400
+        try:
+            from ..live_lint import run_live_lint
+
+            return jsonify(run_live_lint(source, language=language))
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
+    @app.route("/api/lint/live/apply", methods=["POST"])
+    @app.route("/api/lint/semantic/apply", methods=["POST"])
+    def api_live_fix_apply():
+        data = request.get_json(silent=True) or {}
+        source = data.get("source")
+        language = (data.get("language") or "c").strip().lower()
+        if not isinstance(source, str):
+            return jsonify({"error": "source must be a string"}), 400
+        if language == "python":
+            return jsonify(
+                {
+                    "source": source,
+                    "applied_count": 0,
+                    "applied": [],
+                    "note": "Automatic fixes for Python are not available yet.",
+                }
+            )
+        try:
+            from ..live_fix import apply_live_fixes
+
+            corrected, applied = apply_live_fixes(source, language=language)
+            return jsonify(
+                {
+                    "source": corrected,
+                    "applied_count": len(applied),
+                    "applied": applied,
+                }
+            )
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
 
     @app.route("/api/upload", methods=["POST"])
     def api_upload():
@@ -162,30 +557,122 @@ def create_app(project_root: Path | None = None) -> Flask:
             return jsonify({"error": "empty filename"}), 400
 
         name = Path(file.filename).name
-        if Path(name).suffix.lower() not in {".c", ".cc", ".cpp", ".cxx"}:
-            return jsonify({"error": "only C/C++ source files are supported"}), 400
+        try:
+            _check_suffix(name)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
 
         dest = uploads / name
         file.save(dest)
         rel = dest.relative_to(root).as_posix()
-        return jsonify({"path": rel, "name": name})
+        return jsonify(
+            {
+                "path": rel,
+                "name": name,
+                "language": language_id_from_suffix(Path(name).suffix),
+            }
+        )
+
+    @app.route("/api/journey/start", methods=["POST"])
+    def api_journey_start():
+        data = request.get_json(silent=True) or {}
+        path_str = data.get("path")
+        if not path_str:
+            return jsonify({"error": "path is required"}), 400
+        try:
+            source = _resolve_source(str(path_str), root, uploads)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        if not source.exists():
+            return jsonify({"error": f"file not found: {source}"}), 404
+        try:
+            from .journey import start_journey
+
+            payload = start_journey(source)
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+        return jsonify(payload)
+
+    @app.route("/api/journey/download")
+    def api_journey_download():
+        session_id = request.args.get("session_id", "")
+        if not session_id:
+            return jsonify({"error": "session_id is required"}), 400
+        try:
+            from .journey import download_content, get_session
+
+            session = get_session(session_id)
+            if not session:
+                return jsonify({"error": "unknown journey session"}), 404
+            name, content = download_content(session)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 404
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+        from flask import Response
+
+        return Response(
+            content,
+            mimetype="text/x-c",
+            headers={
+                "Content-Disposition": f'attachment; filename="{name}"',
+            },
+        )
+
+    @app.route("/api/journey/advance", methods=["POST"])
+    def api_journey_advance():
+        data = request.get_json(silent=True) or {}
+        session_id = data.get("session_id")
+        action = data.get("action", "continue")
+        question = (data.get("question") or data.get("message") or "").strip()
+        if not session_id:
+            return jsonify({"error": "session_id is required"}), 400
+        try:
+            from .journey import journey_advance
+
+            payload = journey_advance(session_id, action, question=question)
+        except KeyError:
+            return jsonify({"error": "unknown journey session"}), 404
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+        return jsonify(payload)
 
     @app.route("/api/agent", methods=["POST"])
     def api_agent():
         data = request.get_json(silent=True) or {}
         path_str = data.get("path")
+        source_text = data.get("source")
+        filename = data.get("filename") or _EDITOR_DEFAULT
+        language = (data.get("language") or "").strip().lower()
         message = (data.get("message") or "").strip()
 
-        if not path_str or not message:
-            return jsonify({"error": "path and message are required"}), 400
+        if not message:
+            return jsonify({"error": "message is required"}), 400
 
-        try:
-            source = _resolve_source(str(path_str), root, uploads)
-        except ValueError as exc:
-            return jsonify({"error": str(exc)}), 400
-
-        if not source.exists():
-            return jsonify({"error": f"file not found: {source}"}), 404
+        if source_text is not None:
+            if not isinstance(source_text, str):
+                return jsonify({"error": "source must be a string"}), 400
+            if language:
+                filename = workspace_name_for_language(language)
+            name = Path(str(filename)).name
+            try:
+                _check_suffix(name)
+            except ValueError as exc:
+                return jsonify({"error": str(exc)}), 400
+            dest = uploads / name
+            dest.write_text(source_text, encoding="utf-8")
+            source = dest
+        elif path_str:
+            try:
+                source = _resolve_source(str(path_str), root, uploads)
+            except ValueError as exc:
+                return jsonify({"error": str(exc)}), 400
+            if not source.exists():
+                return jsonify({"error": f"file not found: {source}"}), 404
+        else:
+            return jsonify({"error": "path or source is required"}), 400
 
         try:
             from ..agent import run_agent_session
@@ -199,6 +686,8 @@ def create_app(project_root: Path | None = None) -> Flask:
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
 
+        rel = source.relative_to(root).as_posix()
+        session["source_path"] = rel
         return jsonify(session)
 
     @app.route("/api/aai-security/run", methods=["POST"])
@@ -252,6 +741,9 @@ def run_server(
     debug: bool = False,
     project_root: Path | None = None,
 ) -> None:
+    from ..env_loader import load_project_env
+
+    load_project_env(project_root or _project_root())
     app = create_app(project_root)
     print(f"VulnHGNN SecureCC dashboard: http://{host}:{port}")
     app.run(host=host, port=port, debug=debug, use_reloader=False)

@@ -37,5 +37,6 @@ class CWE369Detector(BaseDetector):
                 ],
                 detector=self.cwe_id,
                 node_id=info.node_id,
+                compiler_stage=self.compiler_stage,
             ))
         return findings

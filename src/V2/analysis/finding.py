@@ -20,8 +20,12 @@ class SecurityFinding:
     evidence: list[str] = field(default_factory=list)
     detector: str = "unknown"
     node_id: object = None
+    compiler_stage: str = "llvm_ir_graph"
 
     def to_dict(self):
+        from src.V2.detection.catalog import STAGE_LABELS
+
+        stage = self.compiler_stage or "llvm_ir_graph"
         return {
             "cwe_id": self.cwe_id,
             "title": self.title,
@@ -38,4 +42,6 @@ class SecurityFinding:
             "evidence": list(self.evidence),
             "detector": self.detector,
             "node_id": self.node_id,
+            "compiler_stage": stage,
+            "compiler_stage_label": STAGE_LABELS.get(stage, stage),
         }

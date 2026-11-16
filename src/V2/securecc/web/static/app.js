@@ -3,6 +3,16 @@
 const state = {
   selectedPath: null,
   lastPayload: null,
+  lastPatchedSource: null,
+  editorLanguage: "c",
+  languageMeta: {
+    c: { workspace: "editor_workspace.c", placeholder: "// C source\n#include <stdio.h>\n\nint main(void) {\n  return 0;\n}\n" },
+    cpp: { workspace: "editor_workspace.cpp", placeholder: "// C++ source\n#include <iostream>\n\nint main() {\n  return 0;\n}\n" },
+    python: {
+      workspace: "editor_workspace.py",
+      placeholder: "# Python source\n\ndef main():\n    pass\n\nif __name__ == '__main__':\n    main()\n",
+    },
+  },
 };
 
 const AGENT_PRESETS = {
@@ -20,22 +30,83 @@ function showToast(msg) {
   setTimeout(() => el.classList.add("hidden"), 5000);
 }
 
+window.showToast = showToast;
+window.SecureCCApp = {
+  hasPayload: () => Boolean(state.lastPayload),
+  getLastPayload: () => state.lastPayload,
+  getSelectedPath: () => state.selectedPath,
+  getEditorLanguage: () => state.editorLanguage,
+  renderDashboard,
+};
+
+function editorWorkspaceName() {
+  return state.languageMeta[state.editorLanguage]?.workspace || "editor_workspace.c";
+}
+
+function syncLanguageUi() {
+  const lang = state.editorLanguage;
+  const isPython = lang === "python";
+  const fixWrap = $("#include-fix-wrap");
+  const fixBox = $("#include-fix");
+  if (fixWrap) fixWrap.title = isPython ? "Repair pipeline is C/C++ only" : "";
+  if (fixBox) {
+    fixBox.disabled = isPython;
+    if (isPython) fixBox.checked = false;
+  }
+  const sel = $("#editor-language");
+  if (sel && sel.value !== lang) sel.value = lang;
+  window.SecureCCSemanticLint?.schedule();
+}
+
+function setEditorLanguage(lang, { updatePlaceholder = false } = {}) {
+  if (!state.languageMeta[lang]) lang = "c";
+  state.editorLanguage = lang;
+  syncLanguageUi();
+  if (updatePlaceholder) {
+    const editor = $("#source-editor");
+    if (editor && !editor.value.trim()) {
+      editor.value = state.languageMeta[lang].placeholder;
+    }
+  }
+  $("#editor-path").textContent = editorWorkspaceName() + " (unsaved editor)";
+}
+
 function setLoading(on) {
-  $("#loading").classList.toggle("hidden", !on);
-  $("#analyze-btn").disabled = on || !state.selectedPath;
+  const btn = $("#analyze-btn");
+  if (btn) btn.disabled = on;
+  const loading = $("#workbench-loading");
+  if (loading) loading.classList.toggle("hidden", !on);
 }
 
 async function fetchMeta() {
   const res = await fetch("/api/meta");
   const data = await res.json();
   const el = $("#env-status");
-  if (data.clang_available) {
-    el.textContent = `${data.tool} ${data.version} · clang OK`;
-    el.className = "env-status ok";
-  } else {
-    el.textContent = "clang not found on PATH — analysis will fail";
-    el.className = "env-status warn";
-  }
+  const parts = [];
+  if (data.clang_available) parts.push("clang OK");
+  else parts.push("clang missing");
+  if (data.groq_configured) parts.push("AI OK");
+  else if (data.groq_hint) parts.push("AI: fix .env");
+  else parts.push("AI off");
+  el.textContent = `${data.tool} ${data.version} · ${parts.join(" · ")}`;
+  el.className = data.clang_available && data.groq_configured ? "env-status ok" : "env-status warn";
+  el.title = data.groq_hint || "";
+}
+
+async function loadSourceIntoEditor(path) {
+  const res = await fetch(`/api/source?path=${encodeURIComponent(path)}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "failed to load source");
+  const editor = $("#source-editor");
+  if (editor) editor.value = data.content || "";
+  $("#editor-title").textContent = data.name || "Source editor";
+  $("#editor-path").textContent = data.path || path;
+  state.selectedPath = data.path || path;
+  if (data.language) setEditorLanguage(data.language);
+  else if (data.name?.endsWith(".py")) setEditorLanguage("python");
+  else if (/\.(cpp|cc|cxx)$/i.test(data.name || "")) setEditorLanguage("cpp");
+  else setEditorLanguage("c");
+  window.SecureCCEditor?.refreshLineNumbers();
 }
 
 async function loadSamples() {
@@ -47,7 +118,9 @@ async function loadSamples() {
     const li = document.createElement("li");
     const btn = document.createElement("button");
     btn.type = "button";
+    const tag = s.language ? ` · ${s.language}` : "";
     btn.textContent = s.label;
+    btn.title = `${s.path}${tag}`;
     btn.dataset.path = s.path;
     btn.addEventListener("click", () => selectSample(s.path, btn));
     li.appendChild(btn);
@@ -62,7 +135,7 @@ function selectSample(path, btn) {
   state.selectedPath = path;
   document.querySelectorAll(".sample-list button").forEach((b) => b.classList.remove("active"));
   if (btn) btn.classList.add("active");
-  $("#analyze-btn").disabled = false;
+  loadSourceIntoEditor(path).catch((e) => showToast(e.message));
 }
 
 async function uploadFile(file) {
@@ -72,26 +145,40 @@ async function uploadFile(file) {
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "upload failed");
   state.selectedPath = data.path;
-  $("#analyze-btn").disabled = false;
+  loadSourceIntoEditor(data.path).catch((e) => showToast(e.message));
+  if (data.language) setEditorLanguage(data.language);
   showToast(`Uploaded ${data.name}`);
 }
 
 async function runAnalyze() {
-  if (!state.selectedPath) return;
+  const editor = $("#source-editor");
+  const source = editor?.value ?? "";
+  if (!source.trim()) {
+    showToast("Add C source in the editor first");
+    return;
+  }
   setLoading(true);
   try {
     const res = await fetch("/api/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        path: state.selectedPath,
-        include_fix: $("#include-fix").checked,
+        source,
+        language: state.editorLanguage,
+        filename: editorWorkspaceName(),
+        include_fix: $("#include-fix")?.checked,
       }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "analysis failed");
     state.lastPayload = data;
+    if (data.source?.path) {
+      state.selectedPath = data.source.path;
+    }
     renderDashboard(data);
+    if (data.compile?.ok === false) {
+      showToast("Compile failed — see Overview for errors. Fix code to run full CWE scan.");
+    }
   } catch (err) {
     showToast(err.message);
   } finally {
@@ -107,22 +194,60 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
+/** Node/edge counts for metric cards (scan.graph may be counts or viz payload). */
+function graphMetricCounts(data) {
+  const viz = data?.graph;
+  const sg = data?.scan?.graph;
+  if (viz && typeof viz.total_nodes === "number") {
+    const nodes = viz.shown_nodes ?? viz.total_nodes;
+    const edges = Array.isArray(viz.edges) ? viz.edges.length : viz.edge_count;
+    if (typeof edges === "number") return { nodes, edges };
+    return { nodes, edges: "—" };
+  }
+  if (sg && typeof sg.nodes === "number") {
+    return {
+      nodes: sg.nodes,
+      edges: typeof sg.edges === "number" ? sg.edges : "—",
+    };
+  }
+  if (sg && Array.isArray(sg.nodes)) {
+    return {
+      nodes: sg.nodes.length,
+      edges: Array.isArray(sg.edges) ? sg.edges.length : "—",
+    };
+  }
+  if (viz && Array.isArray(viz.nodes)) {
+    return {
+      nodes: viz.nodes.length,
+      edges: Array.isArray(viz.edges) ? viz.edges.length : "—",
+    };
+  }
+  return { nodes: "—", edges: "—" };
+}
+
 function renderDashboard(data) {
-  $("#empty-state").classList.add("hidden");
+  $("#workbench-empty")?.classList.add("hidden");
   $("#dashboard").classList.remove("hidden");
 
   const scan = data.scan || {};
   const count = scan.finding_count || 0;
   const fix = data.fix;
+  const compileFailed = data.compile && data.compile.ok === false;
 
   $("#source-title").textContent = data.source?.name || "Source";
   $("#source-path").textContent = data.source?.path || "";
 
   const pill = $("#overall-status");
   pill.className = "status-pill";
-  if (fix?.status === "VERIFIED") {
-    pill.textContent = "Repair verified";
+  if (compileFailed) {
+    pill.textContent = "Compile failed";
+    pill.classList.add("rejected");
+  } else if (fix?.status === "VERIFIED" && count === 0) {
+    pill.textContent = "Repair verified · clean";
     pill.classList.add("verified");
+  } else if (fix?.status === "VERIFIED" && count > 0) {
+    pill.textContent = `${count} finding(s) · engine not clean`;
+    pill.classList.add("findings");
   } else if (count === 0) {
     pill.textContent = "Clean";
     pill.classList.add("clean");
@@ -134,12 +259,12 @@ function renderDashboard(data) {
     pill.classList.add("findings");
   }
 
-  const graph = scan.graph || {};
+  const graphCounts = graphMetricCounts(data);
   $("#metrics").innerHTML = `
     <div class="metric-card"><div class="label">Findings</div><div class="value">${count}</div></div>
     <div class="metric-card"><div class="label">CWEs</div><div class="value">${(scan.cwes || []).length}</div></div>
-    <div class="metric-card"><div class="label">Graph nodes</div><div class="value">${graph.nodes ?? "—"}</div></div>
-    <div class="metric-card"><div class="label">Graph edges</div><div class="value">${graph.edges ?? "—"}</div></div>
+    <div class="metric-card"><div class="label">Graph nodes</div><div class="value">${graphCounts.nodes}</div></div>
+    <div class="metric-card"><div class="label">Graph edges</div><div class="value">${graphCounts.edges}</div></div>
     <div class="metric-card"><div class="label">Lessons</div><div class="value">${(data.learn?.lessons || []).length}</div></div>
     <div class="metric-card"><div class="label">Repair</div><div class="value">${fix ? fix.status : "—"}</div></div>
   `;
@@ -165,31 +290,61 @@ function renderDashboard(data) {
     gstats.textContent = "";
     $("#graph-container").innerHTML = "";
   }
+
+  window.SecureCCWorkbench?.onAnalysis(data);
 }
 
 function renderOverview(data) {
   const scan = data.scan || {};
   const cwes = (scan.cwes || []).join(", ") || "none";
+  const compileFailed = data.compile && data.compile.ok === false;
+  const compileDiags = data.compile?.diagnostics || [];
+
+  let compileBlock = "";
+  if (compileFailed) {
+    const rows = compileDiags
+      .map(
+        (d) =>
+          `<li><strong>L${escapeHtml(d.line)}</strong> [${escapeHtml(d.source || "compiler")}] ${escapeHtml(d.message || d.title || "")}</li>`
+      )
+      .join("");
+    compileBlock = `
+    <div class="card banner blocked">
+      <h3>Compilation failed</h3>
+      <p class="muted">${escapeHtml((data.compile.message || "").split("\n")[0])}</p>
+      <p>Fix errors below, then run <strong>Analyze</strong> again for full IR CWE detection (division by zero, overflow, etc.).</p>
+      ${rows ? `<ul class="compile-error-list">${rows}</ul>` : ""}
+    </div>`;
+  }
+
   const ev = data.explain?.evidence_report || {};
-  const steps = [
-    "Compile → IR",
-    "Detect",
-    "Localize",
-    "Explain",
-    "Diagnose",
-    "Learn",
-  ];
-  if (data.fix) steps.push("Repair");
+  const steps = compileFailed
+    ? ["Compile → IR (failed)"]
+    : [
+        "Compile → IR",
+        "Detect",
+        "Localize",
+        "Explain",
+        "Diagnose",
+        "Learn",
+      ];
+  if (data.fix && !compileFailed) steps.push("Repair");
 
   $("#panel-overview").innerHTML = `
+    ${compileBlock}
     <div class="card">
       <h3>Pipeline</h3>
       <div class="pipeline-steps">
         ${steps
-          .map((s) => `<div class="pipeline-step done">${escapeHtml(s)}</div>`)
+          .map((s) => `<div class="pipeline-step ${compileFailed && s.includes("failed") ? "failed" : "done"}">${escapeHtml(s)}</div>`)
           .join("")}
       </div>
       <p class="muted">CWEs detected: <strong>${escapeHtml(cwes)}</strong></p>
+      ${
+        data.vulnerability_catalog
+          ? `<p class="muted">Supported types: <strong>${data.vulnerability_catalog.vulnerabilities.length}</strong> · multi-fixture suites: <strong>${data.vulnerability_catalog.multi_vuln_fixtures.length}</strong></p>`
+          : ""
+      }
       <p class="muted">Evidence status: <strong>${escapeHtml(ev.status || "—")}</strong></p>
       ${
         ev.source_sha256
@@ -210,10 +365,13 @@ function renderFindings(scan) {
       (f) => `
     <tr>
       <td><span class="cwe-tag">${escapeHtml(f.cwe_id)}</span></td>
-      <td>${escapeHtml(f.title || "")}</td>
+      <td>${escapeHtml(f.title || "")}
+        <button type="button" class="sim-link" data-sim-cwe="${escapeHtml(f.cwe_id)}" data-sim-title="${escapeHtml(f.title || "")}">Simulate attack</button>
+      </td>
       <td><span class="severity ${escapeHtml(f.severity || "")}">${escapeHtml(f.severity || "")}</span></td>
-      <td>${(f.confidence * 100).toFixed(0)}%</td>
+      <td>${typeof f.confidence === "number" ? (f.confidence * 100).toFixed(0) : "—"}%</td>
       <td class="mono">${escapeHtml(f.function || "")}</td>
+      <td class="mono" title="${escapeHtml(f.compiler_stage_label || f.compiler_stage || "")}">${escapeHtml(f.compiler_stage_label || f.compiler_stage || "—")}</td>
       <td class="mono" title="${escapeHtml(f.instruction || "")}">${escapeHtml(f.instruction || "")}</td>
     </tr>`
     )
@@ -223,8 +381,14 @@ function renderFindings(scan) {
     rows.length === 0
       ? '<p class="muted">No supported findings.</p>'
       : `<div class="table-wrap"><table class="data">
-      <thead><tr><th>CWE</th><th>Title</th><th>Severity</th><th>Conf.</th><th>Function</th><th>Instruction</th></tr></thead>
+      <thead><tr><th>CWE</th><th>Title</th><th>Severity</th><th>Conf.</th><th>Function</th><th>Compiler stage</th><th>Instruction</th></tr></thead>
       <tbody>${rows}</tbody></table></div>`;
+
+  $("#panel-findings").querySelectorAll(".sim-link").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      window.SecureCCWorkbench?.simulateFromFinding(btn.dataset.simCwe, btn.dataset.simTitle);
+    });
+  });
 }
 
 function renderLocalization(scan) {
@@ -329,7 +493,58 @@ function renderLearn(learn) {
 function renderRepair(fix) {
   if (!fix) {
     $("#panel-repair").innerHTML =
-      '<p class="muted">Enable “Run repair pipeline” before analyzing to see fix plan, verification, and build check results.</p>';
+      '<p class="muted">Enable “Catalog heal (verify + AI)” before analyzing to heal findings in source.</p>';
+    return;
+  }
+  if (fix.command === "catalog_heal" || fix.patched_source) {
+    const perCwe = { ...(fix.per_cwe || {}), ...(fix.advisory_per_cwe || {}) };
+    const rows = Object.entries(perCwe)
+      .map(
+        ([cwe, ok]) =>
+          `<tr><td>${escapeHtml(cwe)}</td><td>${ok ? "✓ cleared" : "✗ remaining"}</td></tr>`
+      )
+      .join("");
+    const actions = (fix.actions || [])
+      .map((a) => `<li>${escapeHtml(JSON.stringify(a))}</li>`)
+      .join("");
+    state.lastPatchedSource = fix.patched_source || null;
+    $("#panel-repair").innerHTML = `
+      <div class="card">
+        <h3>Catalog heal: ${escapeHtml(fix.status || "unknown")}</h3>
+        <p>${escapeHtml(fix.message || "")}</p>
+        <p class="muted">Patch attempts: ${fix.ai_attempts ?? 0}</p>
+        ${
+          fix.patched_source
+            ? '<button type="button" class="btn btn-primary btn-sm" id="apply-healed-source">Apply healed code to editor</button>'
+            : ""
+        }
+      </div>
+      <div class="card"><h3>Per CWE verification</h3>
+        <table class="data"><thead><tr><th>CWE</th><th>Status</th></tr></thead><tbody>${rows || "<tr><td colspan=2>—</td></tr>"}</tbody></table>
+      </div>
+      <div class="card"><h3>Actions</h3><ul>${actions || "<li>none</li>"}</ul></div>
+      ${
+        fix.validation
+          ? `<div class="card"><h3>Re-scan validation</h3><pre class="code-block">${escapeHtml(JSON.stringify(fix.validation, null, 2))}</pre></div>`
+          : ""
+      }
+    `;
+    $("#apply-healed-source")?.addEventListener("click", () => {
+      const editor = $("#source-editor");
+      if (editor && state.lastPatchedSource) {
+        let text = state.lastPatchedSource;
+        const banner = "/* SecureCC: catalog-healed source — re-analyze without Catalog heal to confirm. */\n";
+        if (!text.includes("SecureCC: catalog-healed") && !text.includes("/* healed")) {
+          text = banner + text;
+        }
+        editor.value = text;
+        state.lastPatchedSource = text;
+        const fixBox = $("#include-fix");
+        if (fixBox) fixBox.checked = false;
+        window.SecureCCEditor?.refreshLineNumbers();
+        showToast("Healed source applied — Catalog heal off; run Analyze to confirm");
+      }
+    });
     return;
   }
   const plan = fix.plan || {};
@@ -435,6 +650,19 @@ function initUpload() {
 
 document.addEventListener("DOMContentLoaded", () => {
   fetchMeta();
+  setEditorLanguage("c", { updatePlaceholder: true });
+  $("#editor-language")?.addEventListener("change", (e) => {
+    setEditorLanguage(e.target.value, { updatePlaceholder: true });
+  });
+  $("#editor-new-btn")?.addEventListener("click", () => {
+    const editor = $("#source-editor");
+    if (editor) editor.value = state.languageMeta[state.editorLanguage].placeholder;
+    state.selectedPath = null;
+    $("#editor-title").textContent = "Source editor";
+    setEditorLanguage(state.editorLanguage);
+    window.SecureCCEditor?.refreshLineNumbers();
+    showToast("New editor buffer");
+  });
   loadSamples();
   initTabs();
   initUpload();
@@ -462,7 +690,7 @@ function renderAgentSummary(data) {
   const title = blocked
     ? "Blocked by AAI security layer"
     : data.status === "completed"
-      ? "Agent completed"
+      ? "AI analysis completed"
       : `Status: ${escapeHtml(data.status)}`;
 
   const steps = (data.steps || [])
@@ -483,7 +711,7 @@ function renderAgentSummary(data) {
       <p>${escapeHtml(data.final_message || "")}</p>
       <p class="muted mono">session: ${escapeHtml(data.session_id || "")}</p>
     </div>
-    ${steps ? `<div class="card"><h3>Agent steps</h3><ul class="agent-step-list">${steps}</ul></div>` : ""}
+    ${steps ? `<div class="card"><h3>Analysis steps</h3><ul class="agent-step-list">${steps}</ul></div>` : ""}
   `;
   el.classList.remove("hidden");
   renderAgentArtifacts(data.tool_outputs || {});
@@ -495,8 +723,18 @@ function renderAgentArtifacts(outputs) {
   const parts = [];
 
   const scan = outputs.scan || outputs.rescan;
-  if (scan && scan.findings && scan.findings.length) {
-    const rows = scan.findings
+  const aiReview = outputs.ai_source_review;
+  let findings = scan?.findings || [];
+  if (!findings.length && aiReview?.issues?.length) {
+    findings = aiReview.issues.map((i) => ({
+      cwe_id: i.cwe_id,
+      title: i.title,
+      message: i.message,
+      severity: i.severity,
+    }));
+  }
+  if (findings.length) {
+    const rows = findings
       .map(
         (f) =>
           `<tr><td><span class="cwe-tag">${escapeHtml(f.cwe_id)}</span></td>
@@ -504,10 +742,10 @@ function renderAgentArtifacts(outputs) {
           <td class="mono">${escapeHtml(f.message || f.instruction || "")}</td></tr>`
       )
       .join("");
-    parts.push(`<div class="card"><h3>Scan results</h3>
+    parts.push(`<div class="card"><h3>Findings</h3>
       <div class="table-wrap"><table class="data"><thead><tr><th>CWE</th><th>Title</th><th>Detail</th></tr></thead><tbody>${rows}</tbody></table></div></div>`);
   } else if (scan && scan.finding_count === 0) {
-    parts.push(`<div class="card"><h3>Scan results</h3><p class="muted">No supported findings.</p></div>`);
+    parts.push(`<div class="card"><h3>Findings</h3><p class="muted">No supported findings.</p></div>`);
   }
 
   const explain = outputs.explain;
@@ -556,7 +794,7 @@ function renderAgentArtifacts(outputs) {
     );
   }
 
-  const fix = outputs.fix;
+  const fix = outputs.fix || outputs.catalog_heal;
   if (fix) {
     parts.push(`<div class="card"><h3>Repair pipeline</h3>
       <p><strong>Status:</strong> ${escapeHtml(fix.status || "unknown")}</p>
@@ -567,33 +805,47 @@ function renderAgentArtifacts(outputs) {
     container.innerHTML = `<p class="muted">No tool output to display yet.</p>`;
     return;
   }
-  container.innerHTML = `<h3 class="agent-artifacts-title">SecureCC tool output (from agent run)</h3>${parts.join("")}`;
+  container.innerHTML = `<h3 class="agent-artifacts-title">SecureCC tool output (from AI analysis)</h3>${parts.join("")}`;
 }
 
 async function runAgent() {
-  if (!state.selectedPath) {
-    showToast("Select a source file first");
+  const editor = $("#source-editor");
+  const source = editor?.value ?? "";
+  if (!source.trim()) {
+    showToast("Add source in the editor first");
     return;
   }
   const message = $("#agent-message").value.trim();
   if (!message) {
-    showToast("Enter a message for the agent");
+    showToast("Enter a message for AI analysis");
     return;
   }
   $("#agent-summary").classList.add("hidden");
   $("#agent-artifacts").innerHTML = "";
   $("#agent-output").classList.add("hidden");
-  $("#agent-summary").innerHTML = "<p class='muted'>Running agent…</p>";
+  $("#agent-summary").innerHTML = "<p class='muted'>Running AI analysis…</p>";
   $("#agent-summary").classList.remove("hidden");
   try {
     const res = await fetch("/api/agent", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: state.selectedPath, message }),
+      body: JSON.stringify({
+        source,
+        language: state.editorLanguage,
+        filename: editorWorkspaceName(),
+        path: state.selectedPath,
+        message,
+      }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "agent failed");
     renderAgentSummary(data);
+    const merged = window.SecureCCWorkbench?.onAgentPipeline?.(data);
+    if (merged) {
+      state.lastPayload = merged;
+      if (data.source_path) state.selectedPath = data.source_path;
+      $("#dashboard")?.classList.remove("hidden");
+    }
     if ($("#agent-show-raw").checked) {
       $("#agent-output").textContent = JSON.stringify(data, null, 2);
       $("#agent-output").classList.remove("hidden");

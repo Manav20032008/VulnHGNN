@@ -1,0 +1,435 @@
+.ui-mode-toggle {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.ui-mode-btn {
+  flex: 1;
+  padding: 0.45rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-family: var(--sans);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.ui-mode-btn.active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.panel .small {
+  font-size: 0.72rem;
+  margin-top: 0.35rem;
+}
+
+.journey-voice-select {
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 0.78rem;
+}
+
+.app-shell.journey-mode .main {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.journey-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  max-width: 920px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0.75rem 1rem 1.25rem;
+  box-sizing: border-box;
+}
+
+.journey-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.journey-header h2 {
+  margin: 0 0 0.2rem;
+  font-size: 1.15rem;
+}
+
+.journey-rail {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+  flex-shrink: 0;
+  overflow-x: auto;
+  padding-bottom: 0.15rem;
+}
+
+.journey-rail-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+}
+
+.journey-rail-item .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.journey-rail-item.done {
+  color: var(--text);
+}
+
+.journey-rail-item.done .dot {
+  background: var(--success);
+}
+
+.journey-rail-item.active {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--accent-dim);
+}
+
+.journey-rail-item.active .dot {
+  background: var(--accent);
+}
+
+.journey-glance {
+  margin-bottom: 0.65rem;
+  flex-shrink: 0;
+}
+
+.journey-glance-card {
+  padding: 0.65rem 0.75rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.82rem;
+}
+
+.journey-stage-panel,
+.journey-sim-panel {
+  margin-bottom: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+}
+
+.stage-flow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+
+.stage-chip {
+  font-size: 0.72rem;
+  padding: 0.25rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.stage-chip.done {
+  border-color: var(--success);
+  color: var(--text);
+}
+
+.stage-arrow {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.stage-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.stage-card {
+  min-width: 7rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  font-size: 0.75rem;
+}
+
+.stage-card strong {
+  display: block;
+  font-size: 0.95rem;
+}
+
+.sim-steps {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.sim-step {
+  font-size: 0.8rem;
+  padding: 0.4rem 0.5rem;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-card);
+}
+
+.journey-code-panel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  flex-shrink: 0;
+}
+
+@media (max-width: 900px) {
+  .journey-code-panel {
+    grid-template-columns: 1fr;
+  }
+}
+
+.journey-code-col h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+}
+
+.journey-code-pre {
+  margin: 0;
+  padding: 0.65rem 0.5rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  line-height: 1.45;
+  overflow: auto;
+  max-height: 220px;
+  white-space: pre;
+}
+
+.journey-code-pre.fix {
+  border-color: var(--success);
+  background: rgba(34, 197, 94, 0.06);
+}
+
+.journey-code-pre .ln {
+  display: block;
+  padding: 0 0.35rem;
+}
+
+.journey-code-pre .ln.mark {
+  background: rgba(239, 68, 68, 0.15);
+  border-left: 3px solid var(--danger);
+}
+
+.journey-chat-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+}
+
+.journey-step-banner {
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.journey-messages-current {
+  max-height: min(42vh, 380px);
+}
+
+.journey-inline-code {
+  margin: 0.5rem 0;
+  padding: 0.5rem;
+  background: var(--bg-card);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.journey-messages {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-height: 200px;
+  max-height: min(58vh, 520px);
+  padding-right: 0.15rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.journey-msg {
+  position: relative;
+  padding: 0.6rem 0.7rem 0.6rem 2.25rem;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.journey-msg.user {
+  padding-left: 0.7rem;
+}
+
+.journey-speak-btn {
+  position: absolute;
+  left: 0.35rem;
+  top: 0.45rem;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0.2rem;
+  opacity: 0.65;
+}
+
+.journey-speak-btn:hover {
+  opacity: 1;
+}
+
+.journey-msg-body {
+  display: block;
+}
+
+.journey-msg.assistant {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  max-width: 100%;
+}
+
+.journey-msg.assistant.muted {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.journey-msg.user {
+  background: var(--accent-dim);
+  align-self: flex-end;
+  max-width: min(92%, 480px);
+}
+
+.journey-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.journey-composer {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.65rem;
+  flex-shrink: 0;
+}
+
+.journey-mic-btn {
+  flex-shrink: 0;
+}
+
+.journey-mic-btn.listening {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.journey-composer input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 0.85rem;
+}
+
+.journey-download {
+  margin-top: 0.65rem;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.journey-download-note {
+  margin-top: 0.35rem;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .journey-view {
+    padding: 0.5rem 0.65rem 1rem;
+    max-width: none;
+  }
+
+  .journey-messages {
+    max-height: min(50vh, 420px);
+  }
+
+  .journey-rail-item .rail-label {
+    max-width: 5.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .journey-msg {
+    font-size: 0.84rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .journey-actions .btn {
+    flex: 1 1 100%;
+  }
+
+  .journey-composer {
+    flex-direction: column;
+  }
+
+  .journey-composer .btn {
+    width: 100%;
+  }
+}

@@ -1,0 +1,462 @@
+.app-shell-workbench {
+  --workbench-left-w: min(46vw, 540px);
+}
+
+.workbench-main {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.workbench {
+  display: grid;
+  grid-template-columns: var(--workbench-left-w) 1fr;
+  flex: 1;
+  min-height: 0;
+  height: 100vh;
+}
+
+.workbench-left {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--bg-elevated);
+  min-height: 0;
+}
+
+.workbench-editor-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.workbench-editor-header h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.workbench-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.65rem;
+}
+
+.workbench-lang-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.editor-language-select {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text);
+}
+
+.editor-code-wrap {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--editor-bg);
+}
+
+.editor-code-wrap:focus-within {
+  box-shadow: inset 0 0 0 1px var(--accent-dim);
+}
+
+.editor-line-numbers {
+  margin: 0;
+  padding: 1rem 0.55rem 1rem 0.65rem;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+  user-select: none;
+  overflow: hidden;
+  border: none;
+  border-right: 1px solid var(--border);
+  background: var(--editor-gutter);
+  min-width: 2.5rem;
+  flex-shrink: 0;
+  white-space: pre;
+}
+
+.editor-line-num {
+  display: block;
+}
+
+.editor-line-num.editor-line-active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.source-editor {
+  flex: 1;
+  min-height: 200px;
+  min-width: 0;
+  margin: 0;
+  padding: 1rem 1.1rem;
+  border: none;
+  resize: none;
+  background: var(--editor-bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  outline: none;
+  overflow: auto;
+}
+
+.source-editor:focus {
+  box-shadow: none;
+}
+
+.workbench-hint {
+  margin: 0;
+  padding: 0.5rem 1.1rem 0.85rem;
+  border-top: 1px solid var(--border);
+}
+
+.semantic-lint-panel {
+  border-top: 1px solid var(--border);
+  max-height: 280px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex-shrink: 0;
+}
+
+.semantic-lint-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.55rem 1.1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.semantic-lint-header h3 {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+}
+
+#semantic-lint-meta.live-issues-ok {
+  color: var(--success);
+}
+
+#semantic-lint-meta.live-issues-warn {
+  color: var(--warning);
+}
+
+.live-issues-empty {
+  padding: 1rem 1.1rem 1.1rem;
+  text-align: center;
+}
+
+.live-issues-empty-icon {
+  display: inline-flex;
+  width: 1.75rem;
+  height: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(61, 214, 140, 0.15);
+  color: var(--success);
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+}
+
+.live-issues-empty p {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+}
+
+.semantic-lint-list {
+  overflow-y: auto;
+  padding: 0.5rem 0.65rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.semantic-lint-item {
+  display: block;
+  text-align: left;
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  cursor: pointer;
+  font: inherit;
+  color: var(--text);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.semantic-lint-item.is-warning {
+  border-color: rgba(245, 166, 35, 0.35);
+  background: rgba(245, 166, 35, 0.06);
+}
+
+.semantic-lint-item.is-error {
+  border-color: rgba(242, 85, 90, 0.45);
+  background: rgba(242, 85, 90, 0.08);
+}
+
+.semantic-lint-item:hover {
+  border-color: var(--accent);
+}
+
+.live-issues-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+}
+
+.semantic-lint-line {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.live-issues-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  flex: 1;
+  min-width: 8rem;
+}
+
+.live-issues-source-pill {
+  font-size: 0.65rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.live-issues-subtitle {
+  margin: 0.4rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.live-issues-details {
+  margin: 0.45rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.live-issues-details li {
+  margin-bottom: 0.35rem;
+}
+
+.live-issues-suggestion {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--accent);
+  font-size: 0.72rem;
+}
+
+.semantic-lint-item.is-error .live-issues-title {
+  color: var(--danger);
+}
+
+.semantic-lint-panel.hidden {
+  display: none;
+}
+
+.workbench-right {
+  overflow-y: auto;
+  padding: 1rem 1.25rem 2rem;
+  position: relative;
+  min-height: 0;
+}
+
+.workbench-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.workbench-empty {
+  margin-bottom: 1rem;
+}
+
+.workbench-empty h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.1rem;
+}
+
+.pipeline-panel {
+  margin-bottom: 1.25rem;
+}
+
+.pipeline-heading {
+  margin: 0 0 0.65rem;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.pipeline-rail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.pipeline-step {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  cursor: pointer;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  min-width: 7.5rem;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.pipeline-step:hover {
+  border-color: var(--accent);
+}
+
+.pipeline-step.active {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.pipeline-step-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.pipeline-step-summary {
+  font-size: 0.78rem;
+}
+
+.pipeline-step-advisory {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--warning, #c9a227);
+  font-weight: 500;
+}
+
+.pipeline-step.has-advisory {
+  border-color: rgba(201, 162, 39, 0.45);
+}
+
+.pipeline-step.pipeline-step-ai {
+  border-color: rgba(120, 180, 255, 0.55);
+  background: rgba(80, 140, 220, 0.08);
+}
+
+.pipeline-step.pipeline-step-ai.active {
+  border-color: var(--accent, #5b9cf5);
+  box-shadow: 0 0 0 1px var(--accent, #5b9cf5);
+}
+
+.pipeline-step.done::before {
+  content: "✓ ";
+  color: var(--success);
+}
+
+.pipeline-detail {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  font-size: 0.72rem;
+}
+
+.attack-sim-panel {
+  margin-top: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius);
+  border: 1px solid rgba(245, 166, 35, 0.35);
+  background: rgba(245, 166, 35, 0.08);
+}
+
+.attack-sim-panel h4 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+.attack-sim-text {
+  margin: 0 0 0.65rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.workbench-dashboard .dash-header {
+  margin-top: 0;
+}
+
+.workbench-dashboard .tab-panels {
+  max-height: none;
+}
+
+.sim-link {
+  margin-left: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--warning);
+  cursor: pointer;
+  text-decoration: underline;
+  background: none;
+  border: none;
+  font: inherit;
+  padding: 0;
+}
+
+@media (max-width: 960px) {
+  .app-shell-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .workbench {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .workbench-left {
+    min-height: 40vh;
+  }
+}

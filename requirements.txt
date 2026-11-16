@@ -47,9 +47,10 @@ networkx
 flask
 
 # ============================================================
-# Optional Gemini agent
+# Optional Groq agent
 # ============================================================
-google-generativeai
+groq
+python-dotenv
 
 # ============================================================
 # Utility / visualization dependencies

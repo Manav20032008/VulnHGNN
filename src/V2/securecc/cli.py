@@ -765,6 +765,10 @@ def harden(source: Path, output: Path, output_format: str):
 
 
 def main(argv=None):
+    from .env_loader import load_project_env
+
+    load_project_env()
+
     parser = argparse.ArgumentParser(
         prog="securecc",
 description=(
@@ -986,7 +990,7 @@ description=(
 
     p_agent = sub.add_parser(
         "agent",
-        help="run Gemini-backed SecureCC agent (requires GEMINI_API_KEY)",
+        help="run Groq-backed SecureCC agent (requires GROQ_API_KEY)",
     )
     p_agent.add_argument(
         "source",
@@ -1002,7 +1006,7 @@ description=(
     p_agent.add_argument(
         "--model",
         default=None,
-        help="Gemini model id (default: gemini-2.0-flash or GEMINI_MODEL env)",
+        help="Groq model id (default: llama-3.3-70b-versatile or GROQ_MODEL env)",
     )
     p_agent.add_argument(
         "--format",
@@ -1169,7 +1173,7 @@ description=(
                 print(json.dumps(result, indent=2, default=str))
             else:
                 print("=" * 72)
-                print("VULNHGNN 2.0 — SECURECC GEMINI AGENT")
+                print("VULNHGNN 2.0 — SECURECC GROQ AGENT")
                 print("=" * 72)
                 print(f"Source  : {result['source']}")
                 print(f"Status  : {result['status']}")

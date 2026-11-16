@@ -21,6 +21,76 @@ INFO = {
         "impact": "Dereferencing a NULL pointer can terminate the process and may become a memory-safety issue.",
         "strategy": "Validate the allocated pointer before the first memory dereference.",
     },
+    "CWE-121": {
+        "title": "Stack-based Buffer Overflow", "severity": "HIGH",
+        "impact": "Unbounded copy into a fixed stack buffer can corrupt adjacent memory.",
+        "strategy": "Use bounded APIs (strncpy, snprintf) and validate input length.",
+    },
+    "CWE-134": {
+        "title": "Externally-Controlled Format String", "severity": "HIGH",
+        "impact": "Attacker-controlled format strings can read or write arbitrary memory.",
+        "strategy": "Use constant format literals; never pass user data as the format.",
+    },
+    "CWE-457": {
+        "title": "Uninitialized Variable", "severity": "MEDIUM",
+        "impact": "Reading uninitialized storage yields undefined behavior.",
+        "strategy": "Initialize variables at declaration; enable -Wuninitialized.",
+    },
+    "CWE-787": {
+        "title": "Out-of-bounds Write", "severity": "HIGH",
+        "impact": "Writing past array bounds can corrupt memory and enable exploitation.",
+        "strategy": "Validate indices against array size; use safe interfaces.",
+    },
+    "CWE-122": {
+        "title": "Heap Buffer Overflow", "severity": "HIGH",
+        "impact": "Writing past a heap allocation corrupts adjacent memory and metadata.",
+        "strategy": "Use bounded copies and track allocation sizes.",
+    },
+    "CWE-125": {
+        "title": "Out-of-bounds Read", "severity": "HIGH",
+        "impact": "Reading outside allocated bounds leaks data or crashes.",
+        "strategy": "Validate indices; enable compiler bounds checks.",
+    },
+    "CWE-789": {
+        "title": "Excessive Allocation", "severity": "HIGH",
+        "impact": "Huge or unchecked sizes can exhaust memory (OOM).",
+        "strategy": "Cap sizes; check arithmetic before malloc.",
+    },
+    "CWE-400": {
+        "title": "Resource Exhaustion", "severity": "HIGH",
+        "impact": "Attacker-controlled allocation sizes can deny service.",
+        "strategy": "Validate and bound resource requests.",
+    },
+    "CWE-415": {
+        "title": "Double Free", "severity": "HIGH",
+        "impact": "Freeing the same block twice corrupts heap allocators.",
+        "strategy": "Set pointer to NULL after free; single owner for free.",
+    },
+    "CWE-416": {
+        "title": "Use After Free", "severity": "HIGH",
+        "impact": "Using freed memory is undefined and often exploitable.",
+        "strategy": "Do not touch pointers after free; use clear ownership.",
+    },
+    "CWE-401": {
+        "title": "Memory Leak", "severity": "MEDIUM",
+        "impact": "Leaks exhaust memory over time.",
+        "strategy": "Pair every allocation with release on all paths.",
+    },
+    "CWE-835": {
+        "title": "Infinite Loop", "severity": "MEDIUM",
+        "impact": "Non-terminating loops cause denial of service or hung threads.",
+        "strategy": "Ensure loops have provable exit conditions; avoid while(1) without break.",
+    },
+    "CWE-833": {
+        "title": "Deadlock", "severity": "HIGH",
+        "impact": "Circular lock waits can freeze the program.",
+        "strategy": "Use consistent lock ordering; avoid holding one lock while acquiring another.",
+    },
+    "CWE-667": {
+        "title": "Improper Locking", "severity": "HIGH",
+        "impact": "Double-locking the same mutex is undefined and may deadlock.",
+        "strategy": "Never lock a mutex that is already held by the same thread.",
+    },
 }
 
 EXPECTED = {

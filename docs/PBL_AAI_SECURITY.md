@@ -104,22 +104,22 @@ src/V2/securecc/aai_security/
 └── audit.py       # JSONL logging
 ```
 
-## Gemini agent (implemented)
+## Groq agent (implemented)
 
-The **agent orchestrator** (`src/V2/securecc/agent/`) uses Gemini to choose SecureCC tools in a loop (max 8 steps). Every user message is checked by the AAI input guard; every tool call passes the tool gate; fix output is scanned for poisoned IR.
+The **agent orchestrator** (`src/V2/securecc/agent/`) uses Groq (chat completions) to choose SecureCC tools in a loop (max 8 steps). Every user message is checked by the AAI input guard; every tool call passes the tool gate; fix output is scanned for poisoned IR.
 
 ```bash
-export GEMINI_API_KEY="..."
-pip install google-generativeai
+export GROQ_API_KEY="..."
+pip install groq
 securecc agent test_files/test_02_cwe190.c -m "Scan and explain CWE findings."
 ```
 
-Optional: `GEMINI_MODEL=gemini-2.0-flash` (default).
+Optional: `GROQ_MODEL=llama-3.3-70b-versatile` (default).
 
 ## Limitations (honest scope for PBL)
 
 - Rule-based guards (fast, explainable, auditable); not a neural classifier.
-- The Gemini agent is a thin planner; security gates remain mandatory and deterministic.
+- The Groq agent is a thin planner; security gates remain mandatory and deterministic.
 - C code security still relies on deterministic SecureCC verification.
 
 ## Demo script (2 minutes)

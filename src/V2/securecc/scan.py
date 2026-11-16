@@ -17,6 +17,8 @@ def _finding_dict(finding):
         "evidence": list(getattr(finding, "evidence", []) or []),
         "detector": getattr(finding, "detector", "unknown"),
         "node_id": getattr(finding, "node_id", None),
+        "compiler_stage": getattr(finding, "compiler_stage", "llvm_ir_graph"),
+        "compiler_stage_label": getattr(finding, "compiler_stage_label", None),
     }
 
 

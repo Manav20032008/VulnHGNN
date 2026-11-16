@@ -93,5 +93,38 @@ class VulnerabilityLocalizer:
             rationale=rationale,
         )
 
+    def _localize_from_source(self, sample, finding):
+        loc = finding.location
+        source_file = getattr(loc, "file", None) if loc else None
+        source_line = getattr(loc, "line", None) if loc else None
+        source_column = getattr(loc, "column", None) if loc else None
+        if isinstance(sample, dict) and not source_file:
+            source_file = sample.get("source_file")
+
+        return LocalizedFinding(
+            cwe_id=finding.cwe_id,
+            title=finding.title,
+            severity=finding.severity,
+            confidence=finding.confidence,
+            function=finding.function,
+            vulnerable_node=finding.node_id,
+            vulnerable_instruction=finding.instruction or "",
+            vulnerable_block=None,
+            evidence=[],
+            related_nodes=[],
+            source_file=source_file,
+            source_line=source_line,
+            source_column=source_column,
+            localization_confidence=0.75,
+            rationale="Localized from compiler diagnostic (no IR graph node).",
+        )
+
     def localize(self, sample, findings):
-        return [self.localize_one(sample, finding) for finding in findings]
+        graph = GraphAdapter.graph(sample)
+        localized = []
+        for finding in findings:
+            if finding.node_id is None or finding.node_id not in graph:
+                localized.append(self._localize_from_source(sample, finding))
+            else:
+                localized.append(self.localize_one(sample, finding))
+        return localized
