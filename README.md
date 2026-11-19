@@ -1,629 +1,252 @@
 # VulnHGNN 2.0 — SecureCC
 
-**VulnHGNN 2.0 SecureCC** is a local-first C/C++ security toolchain designed to detect, localize, explain, repair, verify, harden, and protect vulnerable C/C++ programs.
+**SecureCC** is a local-first security workbench for **C, C++, and Java** source. It compiles to LLVM IR (where applicable), builds a heterogeneous graph for CWE detectors, localizes findings, explains them from evidence, and optionally repairs and verifies changes. A browser **workbench** provides live lint, pipeline visualization, IR graphs, AI chat, and catalog-backed healing.
 
-The 2.0 system moves beyond the original ML-focused prototype into a deterministic security pipeline where automated analysis and repair are accepted only after verification.
-
----
-
-## Security Pipeline
-
-```text
-C/C++ Source
-     │
-     ▼
-┌───────────────┐
-│    Analyze    │
-└───────┬───────┘
-        ▼
-┌───────────────┐
-│    Detect     │
-└───────┬───────┘
-        ▼
-┌───────────────┐
-│   Localize    │
-└───────┬───────┘
-        ▼
-┌───────────────┐
-│    Explain    │
-└───────┬───────┘
-        ▼
-┌───────────────┐
-│     Repair    │
-└───────┬───────┘
-        ▼
-┌───────────────┐
-│    Verify     │
-└───────┬───────┘
-        ▼
-┌───────────────┐
-│    Harden     │
-└───────┬───────┘
-        ▼
-┌───────────────┐
-│    Protect    │
-└───────┬───────┘
-        ▼
-  Verified Binary
-        +
- Evidence / Reports
-```
-
-The central design principle is:
-
-> **Automated analysis may produce evidence and proposed changes, but verification is the security authority.**
+> **Design principle:** Automated analysis may propose patches and narratives, but **verification** is the authority for accepting repairs.
 
 ---
 
-# Features
-
-## Vulnerability Detection
-
-The deterministic detector supports (each with a `test_files/test_*` fixture; see `/api/vulnerability-catalog` in the web UI):
-
-| CWE | Title | Typical compiler stage |
-|-----|--------|-------------------------|
-| CWE-190 | Integer Overflow | LLVM IR graph |
-| CWE-191 | Integer Underflow | LLVM IR graph |
-| CWE-369 | Divide by Zero | LLVM IR graph |
-| CWE-476 | NULL Pointer Dereference | LLVM IR graph |
-| CWE-121 | Stack-based Buffer Overflow | LLVM IR graph |
-| CWE-134 | Externally-Controlled Format String | LLVM IR graph |
-| CWE-457 | Uninitialized Variable | Clang `-Wall` diagnostic |
-| CWE-787 | Out-of-bounds Write | Clang `-Wall` diagnostic |
-| CWE-122 | Heap-based Buffer Overflow | LLVM IR graph |
-| CWE-125 | Out-of-bounds Read | Clang bounds + IR GEP heuristics |
-| CWE-789 | Excessive allocation (OOM risk) | LLVM IR graph |
-| CWE-400 | Uncontrolled resource / OOM | LLVM IR graph |
-| CWE-415 | Double free | LLVM IR graph |
-| CWE-416 | Use after free | LLVM IR graph |
-| CWE-401 | Memory leak | LLVM IR graph |
-| CWE-835 | Infinite loop | LLVM IR CFG (+ Clang when reported) |
-| CWE-833 | Deadlock (nested locks) | LLVM IR graph |
-| CWE-667 | Double mutex lock | LLVM IR graph |
-
-Multi-vulnerability fixtures: `test_06`–`test_10`, `test_15`–`test_16`, `test_23`, `test_27_logic_combo.c`. Per-CWE fixtures: `test_11`–`test_26` (see `/api/vulnerability-catalog`).
-
-Every finding includes `compiler_stage` / `compiler_stage_label` (frontend error, compiler warning, LLVM IR emission, or IR graph analysis).
-
----
-
-## Vulnerability Localization
-
-Findings are localized to:
-
-- LLVM instruction
-- Basic block
-- Function
-- Relevant graph/data-flow context
-- Evidence supporting the finding
-
----
-
-## Automated Repair
-
-SecureCC can generate verified repairs for supported vulnerabilities.
-
-Repair strategies include:
-
-- Checked arithmetic for integer overflow/underflow
-- Zero-divisor protection
-- NULL-pointer protection
-- Memory/string handling protection
-
-A repair is not accepted merely because a patch was generated.
-
-It must pass the verification pipeline.
-
----
-
-## Verification
-
-SecureCC verifies repaired programs through multiple stages:
-
-- Compilation
-- Security re-analysis
-- Runtime verification
-- Behavioral verification
-- Hardening verification
-- Provenance validation
-
-Behavior is accepted only when it has been explicitly verified.
-
----
-
-## Explainability
-
-SecureCC produces evidence-first explanations containing:
-
-- CWE classification
-- Vulnerable operation
-- Root cause
-- Security impact
-- Local graph context
-- Repair strategy
-- Verification information
-
-The explanation is derived from deterministic analysis evidence.
-
----
-
-## Binary Hardening
-
-SecureCC can build hardened C/C++ binaries using Clang/LLVM.
-
-The hardening system checks properties including:
-
-- ELF format
-- PIE
-- RELRO
-- BIND_NOW
-- NX stack
-- Stack protector
-- Fortify requirements
-
-Hardening results are included in the generated evidence.
-
----
-
-## Binary Protection
-
-SecureCC supports binary protection profiles including:
-
-- `strip-unneeded`
-- `strip-debug`
-
-Protection is followed by verification of:
-
-- Transformation
-- Hardening
-- Runtime behavior
-- Evidence
-
----
-
-## Sandbox Verification
-
-Runtime verification uses a controlled execution environment with restrictions such as:
-
-- Execution timeout
-- CPU limits
-- Memory limits
-- Controlled stdin
-- Sanitized environment
-- Network restrictions
-- Temporary execution workspace
-
----
-
-## Provenance
-
-SecureCC maintains provenance information for verified artifacts.
-
-The provenance system records information such as:
-
-- Source hash
-- Binary hash
-- Environment information
-- Validation information
-
-Tampering with verified source or binary artifacts is detected during provenance verification.
-
----
-
-# Current Validation
-
-The current project validation suite contains:
-
-- 10 C/C++ security fixtures
-- 18 detected findings
-- 9 files requiring repair
-- 10 verified files
-- 10/10 behavioral fixtures
-
-The complete benchmark covers:
-
-```text
-Detection
-Repair
-Verification
-Evidence
-Regression
-Measurement
-```
-
-The validated benchmark target is:
-
-```text
-Stages passed : 6/6
-```
-
-The project also contains an 11-test regression suite covering:
-
-- CLI
-- Artifacts
-- Policy
-- Project verification
-- Provenance
-- Provenance tampering
-- Evidence
-- Diagnostics
-- Binary protection
-- Measurement
-- Packaging
-
----
-
-# Requirements
-
-## Operating System
-
-SecureCC is designed for a Unix-like development environment.
-
-The project has been developed and tested on:
-
-```text
-Pop!_OS / Ubuntu-based Linux
-```
-
-## Python
-
-Required:
-
-```text
-Python >= 3.12
-```
-
-Check:
-
-```bash
-python3 --version
-```
-
-## Clang / LLVM
-
-SecureCC requires Clang/LLVM for C/C++ compilation and LLVM IR generation.
-
-Check:
-
-```bash
-clang --version
-```
-
-The development environment currently uses:
-
-```text
-Clang/LLVM 18.1.3
-```
-
----
-
-# Installation
-
-Clone the repository:
+## Quick start
 
 ```bash
 git clone <repository-url>
 cd VulnHGNN
+python3 -m venv venv
+source venv/bin/activate   # Windows: venv\Scripts\activate
+python -m pip install --upgrade pip setuptools
+python -m pip install -e . --no-deps
+python -m pip install flask groq python-dotenv networkx   # web UI + optional AI
+
+clang --version   # required for C/C++; JDK/clang for Java features
+
+cp .env.example .env   # optional: set GROQ_API_KEY for adjudication, Explain, Chat, Heal AI
+
+securecc --version
+securecc web
 ```
 
-Create a virtual environment:
+Open **http://127.0.0.1:5050** — load a sample from **Project explorer** (e.g. `test_04_cwe369.c`), click **Analyze**, then browse **Output**, **Detection**, and **Live**.
+
+---
+
+## What you can do
+
+| Capability | CLI | Web workbench |
+|------------|-----|----------------|
+| Compile → IR → HGNN-style graph detection | `securecc scan` | **Analyze** |
+| Per-CWE localization & evidence | (JSON / reports) | **Detection** tabs |
+| Live edits: compiler + heuristics + semantic hints | — | **Live** (Health / Code / Engine) |
+| Explanations & diagnostics | `explain`, `diagnose` | **Intelligence** tabs |
+| Catalog heal + verify | `fix`, `verify` | **Heal** toggle + **Remediation** |
+| IR graph exploration | — | **IR Graph**, Engine preview |
+| Grounded AI chat (Groq) | `securecc agent` | **Chat** |
+| Step-by-step guided review | — | Journey mode (sidebar) |
+
+---
+
+## Web workbench overview
+
+After `securecc web`, the UI is organized as:
+
+- **Editor (center):** Monaco editor, language selector (C / C++ / Java), **Engine preview** toggle, **Analyze**, optional **Heal**.
+- **Live:** Real-time lint KPIs, health charts, **Problems** list (click a row to jump to the line).
+- **Output:** Post-analyze summary, program stdout when clean, optional **quality ratings** (Groq).
+- **Detection / Intelligence / Remediation:** Findings, localization, evidence, explain, agent activity, repair diff — populated after **Analyze**.
+
+**Optional AI:** Create `.env` with `GROQ_API_KEY` and `GROQ_MODEL` (see `.env.example`). Without Groq, deterministic scan/localization still run; some adjudication and AI panels may be reduced.
+
+---
+
+## Security pipeline
+
+```text
+Source (C / C++ / Java)
+        │
+        ▼
+   Analyze / compile → LLVM IR (C/C++) or Java IR path
+        │
+        ▼
+   Detect (CWE detectors on IR graph + Clang diagnostics)
+        │
+        ▼
+   Localize → Explain → Repair (optional) → Verify → Harden / Protect
+        │
+        ▼
+   Evidence, reports, verified artifacts
+```
+
+Pipeline stages are surfaced in the workbench **Overview** / pipeline visualization after a full analyze.
+
+---
+
+## Supported weakness classes (fixtures)
+
+Each CWE below has matching files under `test_files/test_*.c` and `test_files/test_*.cpp` (see `test_files/README_CXX_FIXTURES.md`). The catalog API lists them in the UI: `/api/vulnerability-catalog`.
+
+| CWE | Title | Primary stage |
+|-----|--------|----------------|
+| CWE-190 | Integer overflow | IR graph |
+| CWE-191 | Integer underflow | IR graph |
+| CWE-369 | Divide by zero | IR graph |
+| CWE-476 | NULL pointer dereference | IR graph |
+| CWE-121 | Stack-based buffer overflow | IR graph |
+| CWE-134 | Externally-controlled format string | IR graph |
+| CWE-457 | Uninitialized variable | Clang warning |
+| CWE-787 | Out-of-bounds write | Clang warning |
+| CWE-122 | Heap-based buffer overflow | IR graph |
+| CWE-125 | Out-of-bounds read | Clang + IR |
+| CWE-789 | Excessive allocation | IR graph |
+| CWE-400 | Uncontrolled resource consumption | IR graph |
+| CWE-415 | Double free | IR graph |
+| CWE-416 | Use after free | IR graph |
+| CWE-401 | Memory leak | IR graph |
+| CWE-835 | Infinite loop | CFG / Clang |
+| CWE-833 | Deadlock (nested locks) | IR graph |
+| CWE-667 | Improper locking | IR graph |
+
+**Demo / report fixtures (suggested order):**
+
+| File | Purpose |
+|------|---------|
+| `test_01_clean.c` | Clean baseline, zero findings |
+| `test_04_cwe369.c` | Single clear divide-by-zero |
+| `test_08_triple_190_191_369.c` | Multiple arithmetic CWEs |
+| `test_16_all_detectable.c` | Broad IR detector showcase |
+| `test_21_cwe416.c` / `test_22_cwe401.c` | Memory safety examples |
+
+---
+
+## Requirements
+
+| Dependency | Notes |
+|------------|--------|
+| **Python** | ≥ 3.12 |
+| **Clang/LLVM** | C/C++ compile and IR (`clang`, `clang++`) |
+| **JDK / javac** | Java analysis (when using `.java`) |
+| **Flask** | Web UI (`pip install flask`) |
+| **networkx** | Graph pipeline |
+| **Groq + python-dotenv** | Optional AI (`.env`) |
+| **torch / torch_geometric** | Optional legacy GNN training only |
+
+Developed primarily on Linux; macOS is supported for analysis and the web UI (sandbox/hardening tooling may be Linux-oriented).
+
+---
+
+## Installation (detail)
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-```
-
-Upgrade packaging tools:
-
-```bash
 python -m pip install --upgrade pip setuptools
-```
-
-Install the project in editable mode:
-
-```bash
 python -m pip install -e . --no-deps
 ```
 
-The `securecc` command should then be available:
+Install optional stacks as needed:
+
+```bash
+pip install -r requirements.txt    # full optional set
+# minimal web + scan:
+pip install flask networkx groq python-dotenv
+```
+
+Expected version string:
 
 ```bash
 securecc --version
+# VulnHGNN 2.0 SecureCC 2.0.0
 ```
 
-Expected format:
-
-```text
-VulnHGNN 2.0 SecureCC 2.0.0
-release : development
-```
+See also **docs/INSTALL.md**.
 
 ---
 
-# CLI
-
-SecureCC provides the following commands:
-
-```text
-build
-report
-scan
-fix
-verify
-explain
-diagnose
-harden
-protect
-learn
-benchmark
-web
-aai-security
-agent
-```
-
-View the complete command help:
-
-```bash
-securecc --help
-```
-
----
-
-# Basic Usage
-
-## Scan
-
-```bash
-securecc scan test_files/test_02_cwe190.c
-```
-
-## Explain
-
-```bash
-securecc explain test_files/test_02_cwe190.c
-```
-
-## Fix
-
-```bash
-securecc fix test_files/
-```
-
-## Verify
-
-```bash
-securecc verify test_files/
-```
-
-## Diagnose
-
-```bash
-securecc diagnose test_files/test_02_cwe190.c
-```
-
-## Build
-
-```bash
-securecc build test_files/test_01_clean.c
-```
-
-## Harden
-
-```bash
-securecc harden <binary>
-```
-
-## Protect
-
-```bash
-securecc protect <binary> --profile strip-unneeded
-```
-
-## Benchmark
-
-```bash
-securecc benchmark test_files/
-```
-
-## Web dashboard
-
-Interactive UI for scan, localization, explain, diagnostics, learn, optional repair, IR graph, and raw JSON:
-
-```bash
-pip install flask
-securecc web
-```
-
-Open [http://127.0.0.1:5050](http://127.0.0.1:5050) in your browser.
-
-### Journey mode (step-by-step)
-
-In the sidebar, switch **Classic → Journey**, pick or upload a `.c` file, then **Start journey**. The UI walks through compile → IR parse → graph → detection → per-finding review → repair plan. **Approve & verify fix** runs the deterministic repair pipeline; **Continue** advances only when you choose. Use **Ask** (or optional text-to-speech) for grounded explanations such as “How did you catch this?”
-
-API: `POST /api/journey/start` `{ "path": "..." }`, `POST /api/journey/advance` `{ "session_id", "action": "continue|approve_fix|reject_fix|skip_fix|restart|ask", "question"?: "..." }`.
-
-## Agentic AI security (PBL)
-
-Simulate prompt-injection / policy-bypass attacks, block malicious tool use, and print detection metrics:
-
-```bash
-python3 aai_security_demo.py
-# or
-securecc aai-security
-```
-
-See `docs/PBL_AAI_SECURITY.md` and artifacts under `build/aai_security/`.
-
-### Groq agent
+## Configuration
 
 ```bash
 cp .env.example .env
-# Edit .env and set GROQ_API_KEY=...
-python -m pip install groq python-dotenv
-securecc agent test_files/test_02_cwe190.c -m "Scan and explain the security issues."
 ```
 
-`securecc` loads `.env` from the project root automatically (variables already set in the shell take precedence). Or use the **AI analysis** tab in `securecc web`.
+| Variable | Purpose |
+|----------|---------|
+| `GROQ_API_KEY` | Groq API for agent, chat, adjudication, heal fallback |
+| `GROQ_MODEL` | Model id (default in example: `openai/gpt-oss-120b`) |
+
+`securecc` loads `.env` from the project root; existing shell variables take precedence.
 
 ---
 
-# Project Structure
-
-```text
-VulnHGNN/
-│
-├── configs/
-│   └── behavior.json
-│
-├── data/
-│   ├── ir/
-│   └── parsed_ir/
-│
-├── docs/
-│   ├── CLI.md
-│   ├── INSTALL.md
-│   ├── MANUAL.md
-│   ├── RELEASE_CHECKLIST.md
-│   └── SECURITY_MODEL.md
-│
-├── src/
-│   ├── V2/
-│   │   ├── analysis/
-│   │   ├── compilation/
-│   │   ├── detection/
-│   │   ├── explain/
-│   │   ├── hardening/
-│   │   ├── localization/
-│   │   ├── model/
-│   │   ├── repair/
-│   │   ├── sandbox/
-│   │   ├── securecc/
-│   │   └── verification/
-│   │
-│   └── ...
-│
-├── test_files/
-│
-├── tests/
-│   ├── regression_all.sh
-│   ├── regression_cli.sh
-│   ├── regression_artifacts.sh
-│   ├── regression_policy.sh
-│   ├── regression_project_verify.sh
-│   ├── regression_provenance.sh
-│   ├── regression_provenance_tamper.sh
-│   ├── regression_evidence.sh
-│   ├── regression_diagnostics.sh
-│   ├── regression_protection.sh
-│   ├── regression_measurement.sh
-│   └── regression_packaging.sh
-│
-├── pyproject.toml
-├── requirements.txt
-└── securecc
-```
-
----
-
-# Testing
-
-Run the complete regression suite:
-
-```bash
-./tests/regression_all.sh
-```
-
-Run the end-to-end benchmark:
-
-```bash
-securecc benchmark test_files/
-```
-
-Run the final release audit:
-
-```bash
-./tests/final_release_audit.sh
-```
-
-The release audit validates:
-
-- Repository structure
-- Python syntax
-- Version and packaging
-- CLI command surface
-- Documentation
-- Full regression
-- End-to-end benchmark
-- Release artifacts
-
----
-
-# Security Model
-
-SecureCC follows a verification-first security model.
-
-The system does not treat:
-
-- A generated patch
-- A model prediction
-- A successful compilation
-- A single static-analysis result
-
-as sufficient proof that a repaired program is secure.
-
-Instead, the verification pipeline combines multiple independent checks.
-
-For more information, see:
-
-```text
-docs/SECURITY_MODEL.md
-```
-
----
-
-# Documentation
-
-Detailed documentation is available in:
-
-```text
-docs/
-├── INSTALL.md
-├── CLI.md
-├── MANUAL.md
-├── RELEASE_CHECKLIST.md
-└── SECURITY_MODEL.md
-```
-
----
-
-# Development
-
-Check the working version:
-
-```bash
-securecc --version
-```
-
-Check available commands:
+## CLI reference
 
 ```bash
 securecc --help
 ```
 
-Run syntax validation:
+Common commands:
 
 ```bash
-python -m py_compile $(find src/V2 -name "*.py" -type f)
+securecc scan test_files/test_02_cwe190.c
+securecc explain test_files/test_02_cwe190.c
+securecc diagnose test_files/test_02_cwe190.c
+securecc fix test_files/test_02_cwe190.c
+securecc verify test_files/
+securecc build test_files/test_01_clean.c
+securecc benchmark test_files/
+securecc web
+securecc agent test_files/test_02_cwe190.c -m "Scan and explain issues."
+securecc aai-security
 ```
 
-Run regression:
+Full command list and flags: **docs/CLI.md** and **docs/MANUAL.md**.
+
+---
+
+## Web dashboard
+
+```bash
+securecc web
+```
+
+Default URL: **http://127.0.0.1:5050**
+
+- Upload `.c`, `.cpp`, `.cc`, `.cxx`, or `.java`, or pick **Test & CWE samples** in the explorer.
+- **Analyze** runs the engine pipeline (and integrated agent/AI path when configured).
+- **Journey mode** (sidebar): step-through compile → detect → review → optional fix with human approval (`POST /api/journey/*`).
+
+---
+
+## Project layout
+
+```text
+VulnHGNN/
+├── configs/              # behavior profiles
+├── data/                 # IR / parsed graph assets
+├── docs/                 # INSTALL, CLI, MANUAL, SECURITY_MODEL, …
+├── scripts/              # fixture sync, utilities
+├── src/V2/
+│   ├── analysis/         # compile, IR, scan orchestration
+│   ├── detection/        # CWE catalog & detectors
+│   ├── localization/     # graph-localized findings
+│   ├── explain/ diagnose/ learn/ fix/ verify/
+│   ├── securecc/         # CLI + web (app.py, static/, templates/)
+│   └── …
+├── test_files/           # C/C++ (and Java) regression & demo fixtures
+├── tests/                # shell regression suites
+├── pyproject.toml
+├── requirements.txt
+└── .env.example
+```
+
+---
+
+## Testing
 
 ```bash
 ./tests/regression_all.sh
+securecc benchmark test_files/
+pytest test_files/test_cpp_catalog_regression.py   # needs deps
 ```
 
-Run the final audit:
+Release audit:
 
 ```bash
 ./tests/final_release_audit.sh
@@ -631,7 +254,25 @@ Run the final audit:
 
 ---
 
-# Version
+## Security model
+
+Repairs and “clean” outcomes are not trusted from a single static pass or model output alone. Multiple checks (re-scan, runtime where applicable, provenance) gate acceptance. Details: **docs/SECURITY_MODEL.md**.
+
+---
+
+## Documentation
+
+| Document | Content |
+|----------|---------|
+| [docs/INSTALL.md](docs/INSTALL.md) | Install & environment |
+| [docs/CLI.md](docs/CLI.md) | Command reference |
+| [docs/MANUAL.md](docs/MANUAL.md) | User manual |
+| [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md) | Verification-first model |
+| [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) | Release steps |
+
+---
+
+## Version
 
 ```text
 VulnHGNN 2.0 SecureCC
@@ -641,6 +282,6 @@ Release: development
 
 ---
 
-# License
+## License
 
-Add the project's applicable license here before public distribution.
+Add your project license here before public distribution.
