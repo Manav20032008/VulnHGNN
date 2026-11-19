@@ -16,18 +16,14 @@ from ..fix import fix_source
 from ..languages import (
     LANGUAGE_CHOICES,
     SUPPORTED_SUFFIXES,
-    is_python_path,
     language_id_from_suffix,
     validate_supported_suffix,
     workspace_name_for_language,
 )
-from ..python_scan import analyze_python_source, python_analysis_bundle
-from ..pipeline_stages import build_engine_pipeline_stages, build_python_pipeline_stages
+from ..pipeline_stages import build_engine_pipeline_stages
 from ..scan_merge import (
-    build_display_scan,
     ensure_healed_banner,
     merge_explain_payload,
-    should_gap_fill_merge,
     source_looks_healed,
 )
 from .serializers import _to_jsonable, analysis_bundle
@@ -70,12 +66,20 @@ def _list_samples(root: Path) -> list[dict[str, str]]:
         for path in sorted(paths, key=lambda p: (p.stem.lower(), p.suffix.lower())):
             rel = path.relative_to(root).as_posix()
             lang = "C++" if path.suffix.lower() == ".cpp" else "C"
+            stem = path.stem.lower()
+            if stem.startswith("hello") or stem == "main":
+                category = "Basics"
+            elif stem.startswith("test_"):
+                category = "Test & CWE samples"
+            else:
+                category = lang
             samples.append(
                 {
                     "id": rel,
                     "label": path.name,
                     "path": rel,
                     "language": lang,
+                    "category": category,
                 }
             )
     return samples
@@ -83,10 +87,6 @@ def _list_samples(root: Path) -> list[dict[str, str]]:
 
 def _pipeline_stages(analysis: dict, scan: dict[str, Any]) -> list[dict[str, Any]]:
     return build_engine_pipeline_stages(analysis, scan)
-
-
-def _pipeline_stages_python(analysis: dict, scan: dict[str, Any]) -> list[dict[str, Any]]:
-    return build_python_pipeline_stages(analysis, scan)
 
 
 def _build_compile_failed_payload(
@@ -197,6 +197,60 @@ def _merge_compile_diags(
     return sorted(out, key=lambda x: (x.get("line") or 0, x.get("column") or 0))
 
 
+def build_preview_payload(source: Path) -> dict[str, Any]:
+    """Lightweight engine pass for live preview (no heal / explain / AI)."""
+    from .cfg_viz import build_flow_views
+
+    raw_graph = None
+    try:
+        analysis = analyze_source(source)
+    except RuntimeError as exc:
+        return {
+            "preview": True,
+            "finding_count": 0,
+            "cwes": [],
+            "findings": [],
+            "graph": None,
+            "flow": {"functions": []},
+            "graph_counts": {"nodes": 0, "edges": 0},
+            "compile": {"ok": False, "message": str(exc)},
+        }
+    bundle = analysis_bundle(analysis)
+    scan = bundle["scan"]
+    graph = bundle.get("graph")
+    raw_graph = analysis.get("graph")
+
+    graph_counts: dict[str, Any] = {"nodes": "—", "edges": "—"}
+    if isinstance(graph, dict):
+        nodes = graph.get("shown_nodes") or graph.get("total_nodes")
+        if nodes is None and isinstance(graph.get("nodes"), list):
+            nodes = len(graph["nodes"])
+        edges = graph.get("edges")
+        if isinstance(edges, list):
+            edge_n = len(edges)
+        else:
+            edge_n = graph.get("edge_count", "—")
+        graph_counts = {"nodes": nodes or 0, "edges": edge_n}
+
+    highlight = {
+        str(f.get("node_id"))
+        for f in (scan.get("findings") or [])
+        if f.get("node_id")
+    }
+    flow = build_flow_views(raw_graph, highlight_nodes=highlight)
+
+    return {
+        "preview": True,
+        "finding_count": int(scan.get("finding_count") or 0),
+        "cwes": scan.get("cwes") or [],
+        "findings": (scan.get("findings") or [])[:25],
+        "graph": graph,
+        "flow": flow,
+        "graph_counts": graph_counts,
+        "compile": {"ok": True},
+    }
+
+
 def build_dashboard_payload(source: Path, *, include_fix: bool) -> dict[str, Any]:
     from src.V2.detection.catalog import catalog_payload
 
@@ -208,83 +262,33 @@ def build_dashboard_payload(source: Path, *, include_fix: bool) -> dict[str, Any
         "language": language_id_from_suffix(source.suffix),
     }
 
-    if is_python_path(source):
-        if include_fix:
-            include_fix = False
-        analysis = analyze_python_source(source)
-        bundle = python_analysis_bundle(analysis)
-        from src.V2.securecc.agent.ai_source_review import ai_source_review
+    from src.V2.detection.catalog import catalog_payload
+    from src.V2.securecc.agent.ai_source_review import ai_source_review
+    from .analyze_orchestrator import run_engine_pipeline_pass
 
-        ai_review = ai_source_review(source, language="python")
-        merged_scan = build_display_scan(bundle["scan"], ai_review, source_text=content)
-        payload: dict[str, Any] = {
-            "meta": version_report(),
-            "vulnerability_catalog": catalog_payload(),
-            "source": base_source,
-            "scan": merged_scan,
-            "graph": None,
-            "explain": {
-                "tool": "VulnHGNN 2.0 SecureCC",
-                "command": "explain",
-                "source": str(source),
-                "finding_count": merged_scan.get("finding_count", 0),
-                "explanations": merged_scan.get("explanations", []),
-                "evidence_report": None,
-            },
-            "diagnostics": {
-                "tool": "VulnHGNN 2.0 SecureCC",
-                "command": "diagnose",
-                "source": str(source),
-                "finding_count": 0,
-                "diagnostics": [],
-                "note": "Diagnostics pipeline is C/C++ only; Python uses AST + Bandit findings.",
-            },
-            "learn": {
-                "tool": "VulnHGNN 2.0 SecureCC",
-                "command": "learn",
-                "source": str(source),
-                "finding_count": merged_scan.get("finding_count", 0),
-                "lessons": [],
-                "note": "Lesson bank is optimized for C/C++ CWEs.",
-            },
-            "fix": None,
-            "pipeline": {
-                "stages": build_python_pipeline_stages(analysis, merged_scan)
-            },
-            "compile": {"ok": True, "note": "Python — no LLVM compile step"},
-            "analysis_status": "ok",
-        }
-        return payload
-
+    lang = language_id_from_suffix(source.suffix)
     try:
-        analysis = analyze_source(source)
+        pass_out = run_engine_pipeline_pass(source, source_text=content, language=lang)
     except RuntimeError as exc:
         return _build_compile_failed_payload(source, base_source, str(exc), include_fix=include_fix)
 
-    bundle = analysis_bundle(analysis)
+    analysis = pass_out["analysis"]
+    if pass_out["source_text_used"] != content:
+        content = pass_out["source_text_used"]
+        base_source["content"] = content
 
-    explain = explain_source(source)
-    diagnostics = diagnose_source(source)
-    learn = learn_source(source)
+    explain = explain_source(pass_out["source_path_used"])
+    diagnostics = diagnose_source(pass_out["source_path_used"])
+    learn = learn_source(pass_out["source_path_used"])
 
-    from src.V2.detection.catalog import catalog_payload
-    from src.V2.securecc.agent.ai_source_review import ai_source_review
-
-    lang = language_id_from_suffix(source.suffix)
-    engine_scan = bundle["scan"]
+    engine_scan = pass_out["engine_scan"]
+    display_scan = pass_out["scan"]
     ai_review: dict[str, Any] | None = None
     if include_fix and not source_looks_healed(content):
-        ai_review = ai_source_review(source, language=lang)
-        display_scan = dict(engine_scan)
-    elif include_fix:
-        display_scan = dict(engine_scan)
-    elif should_gap_fill_merge(engine_scan, content):
-        ai_review = ai_source_review(source, language=lang)
-        display_scan = build_display_scan(engine_scan, ai_review, source_text=content)
-    else:
-        display_scan = dict(engine_scan)
+        ai_review = ai_source_review(pass_out["source_path_used"], language=lang)
 
     explain_payload = merge_explain_payload(_to_jsonable(explain), display_scan)
+
     heal_blob: dict[str, Any] | None = None
 
     payload: dict[str, Any] = {
@@ -293,8 +297,14 @@ def build_dashboard_payload(source: Path, *, include_fix: bool) -> dict[str, Any
         "source": {
             **base_source,
         },
+        "engine_scan": engine_scan,
+        "adjudication": pass_out["adjudication"],
+        "verification": pass_out["verification"],
+        "compile_repair": pass_out["compile_repair"],
+        "enrichment": pass_out["enrichment"],
         "scan": display_scan,
-        "graph": bundle["graph"],
+        "graph": pass_out["graph"],
+        "flow": pass_out["flow"],
         "explain": explain_payload,
         "diagnostics": _to_jsonable(diagnostics),
         "learn": _to_jsonable(learn),
@@ -303,7 +313,13 @@ def build_dashboard_payload(source: Path, *, include_fix: bool) -> dict[str, Any
             "stages": build_engine_pipeline_stages(
                 analysis,
                 display_scan,
+                engine_scan=engine_scan,
+                adjudication=pass_out["adjudication"],
+                compile_repair=pass_out["compile_repair"],
+                enrichment=pass_out["enrichment"],
                 heal=heal_blob,
+                diagnostics=_to_jsonable(diagnostics),
+                learn=_to_jsonable(learn),
             )
         },
         "compile": {"ok": True},
@@ -336,6 +352,42 @@ def build_dashboard_payload(source: Path, *, include_fix: bool) -> dict[str, Any
             payload["fix"] = _to_jsonable(heal_result)
             payload["fix"]["command"] = "catalog_heal"
             heal_blob = payload["fix"]
+            patched_src = heal_result.get("patched_source") or content
+            if str(heal_result.get("status", "")).upper() == "VERIFIED" and patched_src:
+                import tempfile as _tf
+
+                suffix = source.suffix or ".c"
+                with _tf.NamedTemporaryFile(
+                    mode="w",
+                    suffix=suffix,
+                    prefix="securecc_heal_",
+                    delete=False,
+                    encoding="utf-8",
+                ) as hf:
+                    hf.write(patched_src)
+                    heal_path = Path(hf.name)
+                try:
+                    post = run_engine_pipeline_pass(
+                        heal_path, source_text=patched_src, language=lang
+                    )
+                    payload["post_heal_adjudication"] = post["adjudication"]
+                    payload["post_heal_verification"] = post["verification"]
+                    payload["post_heal_engine_scan"] = post["engine_scan"]
+                    payload["scan"] = post["scan"]
+                    payload["verification"] = post["verification"]
+                    payload["adjudication"] = post["adjudication"]
+                    payload["enrichment"] = post["enrichment"]
+                    display_scan = post["scan"]
+                    payload["explain"] = merge_explain_payload(
+                        payload["explain"], post["scan"]
+                    )
+                except RuntimeError as exc:
+                    payload["post_heal_error"] = str(exc)
+                finally:
+                    try:
+                        heal_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
             with tempfile.TemporaryDirectory(prefix="securecc_web_ir_") as tmp:
                 try:
                     ir_fix = fix_source(
@@ -350,10 +402,43 @@ def build_dashboard_payload(source: Path, *, include_fix: bool) -> dict[str, Any
             payload["pipeline"] = {
                 "stages": build_engine_pipeline_stages(
                     analysis,
-                    display_scan,
+                    payload["scan"],
+                    engine_scan=payload.get("post_heal_engine_scan") or engine_scan,
+                    adjudication=payload["adjudication"],
+                    compile_repair=pass_out["compile_repair"],
+                    enrichment=payload.get("enrichment"),
                     heal=heal_blob,
+                    diagnostics=payload.get("diagnostics"),
+                    learn=payload.get("learn"),
                 )
             }
+
+    from ..program_run import attach_program_run_if_clean
+    from ..quality_ratings import build_quality_ratings
+
+    attach_program_run_if_clean(
+        payload,
+        source_path=Path(pass_out["source_path_used"]),
+        source_text=payload.get("source", {}).get("content"),
+    )
+
+    try:
+        payload["quality_ratings"] = build_quality_ratings(
+            source_text=payload.get("source", {}).get("content") or content,
+            language=lang,
+            source_path=Path(pass_out["source_path_used"]),
+            diagnostics=payload.get("diagnostics"),
+            scan=payload.get("scan") or {},
+            verification=str(payload.get("verification") or ""),
+            adjudication=payload.get("adjudication") or {},
+            engine_scan=payload.get("post_heal_engine_scan") or engine_scan,
+        )
+    except Exception as exc:
+        payload["quality_ratings"] = {
+            "status": "ERROR",
+            "message": str(exc)[:300],
+            "dimensions": {},
+        }
 
     return payload
 
@@ -394,12 +479,15 @@ def create_app(project_root: Path | None = None) -> Flask:
         except Exception:
             pass
         from ..groq_config import groq_status
+        from ..java_ir import javac_available, java_llvm_tool_available
 
         return jsonify(
             {
                 **version_report(),
                 "project_root": str(root),
                 "clang_available": clang_ok,
+                "javac_available": javac_available(),
+                "java_llvm_available": java_llvm_tool_available(),
                 "supported_languages": list(LANGUAGE_CHOICES),
                 "supported_suffixes": sorted(SUPPORTED_SUFFIXES),
                 **groq_status(root),
@@ -477,9 +565,6 @@ def create_app(project_root: Path | None = None) -> Flask:
         else:
             return jsonify({"error": "path or source is required"}), 400
 
-        if is_python_path(source):
-            include_fix = False
-
         try:
             payload = build_dashboard_payload(source, include_fix=include_fix)
         except Exception as exc:
@@ -487,6 +572,31 @@ def create_app(project_root: Path | None = None) -> Flask:
 
         if isinstance(payload.get("source"), dict):
             payload["source"]["language"] = language_id_from_suffix(source.suffix)
+        return jsonify(payload)
+
+    @app.route("/api/analyze/preview", methods=["POST"])
+    def api_analyze_preview():
+        data = request.get_json(silent=True) or {}
+        source_text = data.get("source")
+        filename = data.get("filename") or _EDITOR_DEFAULT
+        language = (data.get("language") or "").strip().lower()
+
+        if source_text is None or not isinstance(source_text, str):
+            return jsonify({"error": "source must be a string"}), 400
+        if language:
+            filename = workspace_name_for_language(language)
+        name = Path(str(filename)).name
+        try:
+            _check_suffix(name)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        dest = uploads / name
+        dest.write_text(source_text, encoding="utf-8")
+        source = dest
+        try:
+            payload = build_preview_payload(source)
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
         return jsonify(payload)
 
     @app.route("/api/lint/live", methods=["POST"])
@@ -525,13 +635,13 @@ def create_app(project_root: Path | None = None) -> Flask:
         language = (data.get("language") or "c").strip().lower()
         if not isinstance(source, str):
             return jsonify({"error": "source must be a string"}), 400
-        if language == "python":
+        if language == "java":
             return jsonify(
                 {
                     "source": source,
                     "applied_count": 0,
                     "applied": [],
-                    "note": "Automatic fixes for Python are not available yet.",
+                    "note": "Automatic fixes for Java are not available yet.",
                 }
             )
         try:
@@ -638,6 +748,58 @@ def create_app(project_root: Path | None = None) -> Flask:
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
         return jsonify(payload)
+
+    @app.route("/api/chat", methods=["POST"])
+    def api_chat():
+        data = request.get_json(silent=True) or {}
+        message = (data.get("message") or "").strip()
+        if not message:
+            return jsonify({"error": "message is required"}), 400
+
+        source_text = data.get("source")
+        if source_text is not None and not isinstance(source_text, str):
+            return jsonify({"error": "source must be a string"}), 400
+
+        path_str = data.get("path")
+        filename = data.get("filename") or _EDITOR_DEFAULT
+        language = (data.get("language") or "c").strip().lower()
+        history = data.get("history") if isinstance(data.get("history"), list) else []
+        analysis_context = data.get("analysis_context") if isinstance(data.get("analysis_context"), dict) else None
+
+        if source_text is None:
+            if not path_str:
+                return jsonify({"error": "source or path is required"}), 400
+            try:
+                source = _resolve_source(str(path_str), root, uploads)
+            except ValueError as exc:
+                return jsonify({"error": str(exc)}), 400
+            if not source.exists():
+                return jsonify({"error": f"file not found: {source}"}), 404
+            source_text = source.read_text(encoding="utf-8", errors="replace")
+            filename = source.name
+            language = language_id_from_suffix(source.suffix)
+        elif language:
+            filename = workspace_name_for_language(language)
+
+        try:
+            from ..code_chat import chat_about_code
+
+            out = chat_about_code(
+                message=message,
+                source_text=source_text,
+                language=language,
+                filename=Path(str(filename)).name,
+                history=history,
+                analysis_context=analysis_context,
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 503
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
+        return jsonify(out)
 
     @app.route("/api/agent", methods=["POST"])
     def api_agent():

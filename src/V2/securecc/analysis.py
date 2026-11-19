@@ -45,7 +45,12 @@ def _load_explainability():
 
 
 def compile_to_ir(source: Path) -> Path:
-    from .languages import compiler_for_source, is_cpp_suffix
+    from .languages import compiler_for_source, is_cpp_suffix, is_java_path
+
+    if is_java_path(source):
+        from .java_ir import compile_java_to_ir
+
+        return compile_java_to_ir(source)
 
     compiler = compiler_for_source(source)
 

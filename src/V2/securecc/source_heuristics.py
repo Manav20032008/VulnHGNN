@@ -6,8 +6,6 @@ from typing import Any
 
 def scan_source_heuristics(source: str, *, language: str) -> list[dict[str, Any]]:
     """Fast pattern checks on raw source (hints, not proof)."""
-    if language == "python":
-        return _python_heuristics(source)
     return _c_family_heuristics(source)
 
 

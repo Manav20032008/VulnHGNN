@@ -17,11 +17,36 @@ def _detect_detail(scan: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _adjudicate_detail(adjudication: dict[str, Any] | None) -> str:
+    if not adjudication:
+        return "AI cross-check of HGNN candidates against source."
+    lines = [
+        f"Engine candidates: {adjudication.get('engine_candidate_count', 0)}",
+        f"Confirmed: {adjudication.get('confirmed_count', 0)}",
+        f"Rejected: {adjudication.get('rejected_count', 0)}",
+        f"Inconclusive: {adjudication.get('inconclusive_count', 0)}",
+    ]
+    if adjudication.get("message"):
+        lines.append(str(adjudication["message"]))
+    for r in (adjudication.get("rejected") or [])[:6]:
+        cwe = r.get("cwe_id") or "—"
+        title = (r.get("title") or "")[:60]
+        why = (r.get("adjudication_rationale") or "")[:120]
+        lines.append(f"Rejected {cwe} {title}: {why}")
+    return "\n".join(lines)
+
+
 def build_engine_pipeline_stages(
     analysis: dict,
     scan: dict[str, Any],
     *,
+    engine_scan: dict[str, Any] | None = None,
+    adjudication: dict[str, Any] | None = None,
+    compile_repair: dict[str, Any] | None = None,
+    enrichment: dict[str, Any] | None = None,
     heal: dict[str, Any] | None = None,
+    diagnostics: dict[str, Any] | None = None,
+    learn: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     graph = scan.get("graph") or {}
     if isinstance(graph, dict) and "nodes" in graph and isinstance(graph["nodes"], list):
@@ -37,18 +62,32 @@ def build_engine_pipeline_stages(
     cwes = scan.get("cwes") or []
     loc_count = len(scan.get("localization") or [])
     explain_count = len(scan.get("explanations") or [])
-    finding_count = int(scan.get("finding_count") or 0)
-    detect_summary = (
-        f"{finding_count} finding(s) · CWEs: {', '.join(cwes) if cwes else 'none'}"
+    engine_candidates = int(
+        (adjudication or {}).get("engine_candidate_count")
+        or (engine_scan or {}).get("finding_count")
+        or scan.get("finding_count")
+        or 0
     )
+    finding_count = int(scan.get("finding_count") or 0)
+    detect_summary = f"{engine_candidates} HGNN candidate(s)"
+
+    compile_summary = f"{analysis.get('llvm_ir_line_count', 0)} IR lines"
+    compile_detail = analysis.get("llvm_ir_preview") or ""
+    if compile_repair and compile_repair.get("status") == "repaired":
+        compile_summary = f"Repaired · {compile_summary}"
+        bits = [
+            str(r.get("message") or r.get("status") or "")
+            for r in (compile_repair.get("repairs") or [])
+        ]
+        compile_detail = (compile_detail + "\n" + "\n".join(bits)).strip()
 
     stages: list[dict[str, Any]] = [
         {
             "id": "compile",
             "label": "Compile → LLVM IR",
             "status": "complete",
-            "summary": f"{analysis.get('llvm_ir_line_count', 0)} IR lines",
-            "detail": analysis.get("llvm_ir_preview") or "",
+            "summary": compile_summary,
+            "detail": compile_detail,
         },
         {
             "id": "parse",
@@ -66,12 +105,37 @@ def build_engine_pipeline_stages(
         },
         {
             "id": "detect",
-            "label": "Detect",
+            "label": "HGNN detect",
             "status": "complete",
             "summary": detect_summary,
-            "detail": _detect_detail(scan),
+            "detail": _detect_detail(engine_scan or scan),
         },
     ]
+    adj_status = (adjudication or {}).get("status") or "pending"
+    stages.append(
+        {
+            "id": "adjudicate",
+            "label": "AI adjudicate",
+            "status": "complete" if adj_status == "COMPLETE" else "partial",
+            "summary": (
+                f"{finding_count} confirmed · "
+                f"{(adjudication or {}).get('rejected_count', 0)} rejected"
+            ),
+            "detail": _adjudicate_detail(adjudication),
+        }
+    )
+    enr = enrichment or {}
+    clf = (enr.get("classifier") or {}).get("status")
+    exp = (enr.get("explainer") or {}).get("status")
+    stages.append(
+        {
+            "id": "enrich",
+            "label": "AI classify & explain",
+            "status": "complete" if enr.get("status") == "complete" else "partial",
+            "summary": f"classifier {clf or '—'} · explainer {exp or '—'}",
+            "detail": "CWE/severity normalization and narratives on confirmed findings only.",
+        }
+    )
     stages.extend(
         [
             {
@@ -89,6 +153,26 @@ def build_engine_pipeline_stages(
                 "detail": "Root cause, impact, and repair strategy per CWE.",
             },
         ]
+    )
+    diag_items = (diagnostics or {}).get("diagnostics") or []
+    lesson_items = (learn or {}).get("lessons") or []
+    stages.append(
+        {
+            "id": "diagnose",
+            "label": "Diagnose",
+            "status": "complete",
+            "summary": f"{len(diag_items)} diagnostic(s)",
+            "detail": "Structured diagnostics linked to CWE patterns and IR evidence.",
+        }
+    )
+    stages.append(
+        {
+            "id": "learn",
+            "label": "Learn",
+            "status": "complete",
+            "summary": f"{len(lesson_items)} lesson(s)",
+            "detail": "Secure coding lessons for detected CWE categories.",
+        }
     )
 
     if heal:

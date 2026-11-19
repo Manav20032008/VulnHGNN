@@ -7,7 +7,7 @@ from pathlib import Path
 
 from src.V2.analysis.finding import SecurityFinding, SourceLocation
 from src.V2.detection.catalog import STAGE_COMPILER_WARNING
-from src.V2.securecc.languages import compiler_for_source
+from src.V2.securecc.languages import compiler_for_source, is_java_path
 
 _DIAG_LINE = re.compile(
     r"^(?P<file>.*?):(?P<line>\d+):(?P<col>\d+):\s*"
@@ -93,7 +93,15 @@ def _run_clang_syntax_check(source: Path) -> str:
 
 
 def collect_compiler_diagnostics(source: Path) -> list[dict]:
-    """Clang errors and security-oriented warnings for live lint / analyze UI."""
+    """Clang or javac errors and warnings for live lint / analyze UI."""
+    if is_java_path(source):
+        from .java_ir import parse_javac_diagnostics, run_javac_diagnostics
+
+        combined = run_javac_diagnostics(source)
+        if not combined.strip():
+            return []
+        return parse_javac_diagnostics(combined)
+
     combined = _run_clang_syntax_check(source)
     if not combined.strip():
         return []
@@ -102,6 +110,9 @@ def collect_compiler_diagnostics(source: Path) -> list[dict]:
 
 def collect_compiler_warnings(source: Path) -> list[SecurityFinding]:
     """Run clang with security-oriented warnings and map diagnostics to CWE findings."""
+    if is_java_path(source):
+        return []
+
     combined = _run_clang_syntax_check(source)
     if not combined.strip():
         return []

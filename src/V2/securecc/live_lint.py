@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import hashlib
 import tempfile
 import time
@@ -50,47 +49,6 @@ def _write_temp_source(source: str, language: str) -> Path:
     return Path(handle.name)
 
 
-def _python_live(source: str) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
-    try:
-        ast.parse(source)
-    except SyntaxError as exc:
-        items.append(
-            {
-                "line": exc.lineno or 1,
-                "column": exc.offset or 1,
-                "category": "ERROR",
-                "title": "Python syntax error",
-                "message": exc.msg or str(exc),
-                "source": "python",
-            }
-        )
-    try:
-        path = _write_temp_source(source, "python")
-        try:
-            from .python_scan import analyze_python_source
-
-            report = analyze_python_source(path)
-            for finding in report.get("findings") or []:
-                loc = getattr(finding, "location", None)
-                items.append(
-                    {
-                        "line": getattr(loc, "line", None) or 1,
-                        "column": getattr(loc, "column", None) or 1,
-                        "category": "WARNING",
-                        "title": getattr(finding, "title", "Python finding"),
-                        "message": getattr(finding, "message", ""),
-                        "source": "python",
-                        "cwe_id": getattr(finding, "cwe_id", None),
-                    }
-                )
-        finally:
-            path.unlink(missing_ok=True)
-    except OSError:
-        pass
-    return items
-
-
 def run_live_lint(source: str, *, language: str) -> dict[str, Any]:
     started = time.perf_counter()
     language = (language or "c").lower()
@@ -103,23 +61,24 @@ def run_live_lint(source: str, *, language: str) -> dict[str, Any]:
 
     items: list[dict[str, Any]] = list(scan_source_heuristics(source, language=language))
 
-    if language == "python":
-        items.extend(_python_live(source))
-    else:
+    if language != "java":
         try:
-            path = _write_temp_source(source, language)
-            try:
-                report = analyze_semantics(source)
-                items.extend(to_local_diagnostic(d) for d in report.diagnostics)
-                items.extend(collect_compiler_diagnostics(path))
-            finally:
-                path.unlink(missing_ok=True)
-        except OSError as exc:
-            return {
-                "diagnostics": _merge_diagnostics(items),
-                "stats": {"matched": len(items), "elapsed_ms": 0.0, "error": str(exc)},
-                "partial": True,
-            }
+            report = analyze_semantics(source)
+            items.extend(to_local_diagnostic(d) for d in report.diagnostics)
+        except Exception:
+            pass
+    try:
+        path = _write_temp_source(source, language)
+        try:
+            items.extend(collect_compiler_diagnostics(path))
+        finally:
+            path.unlink(missing_ok=True)
+    except OSError as exc:
+        return {
+            "diagnostics": _merge_diagnostics(items),
+            "stats": {"matched": len(items), "elapsed_ms": 0.0, "error": str(exc)},
+            "partial": True,
+        }
 
     merged = _merge_diagnostics(items)
     return {

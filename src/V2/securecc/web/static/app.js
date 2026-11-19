@@ -8,9 +8,10 @@ const state = {
   languageMeta: {
     c: { workspace: "editor_workspace.c", placeholder: "// C source\n#include <stdio.h>\n\nint main(void) {\n  return 0;\n}\n" },
     cpp: { workspace: "editor_workspace.cpp", placeholder: "// C++ source\n#include <iostream>\n\nint main() {\n  return 0;\n}\n" },
-    python: {
-      workspace: "editor_workspace.py",
-      placeholder: "# Python source\n\ndef main():\n    pass\n\nif __name__ == '__main__':\n    main()\n",
+    java: {
+      workspace: "editor_workspace.java",
+      placeholder:
+        "// Java source\npublic class Main {\n  public static void main(String[] args) {\n  }\n}\n",
     },
   },
 };
@@ -45,14 +46,10 @@ function editorWorkspaceName() {
 
 function syncLanguageUi() {
   const lang = state.editorLanguage;
-  const isPython = lang === "python";
   const fixWrap = $("#include-fix-wrap");
   const fixBox = $("#include-fix");
-  if (fixWrap) fixWrap.title = isPython ? "Repair pipeline is C/C++ only" : "";
-  if (fixBox) {
-    fixBox.disabled = isPython;
-    if (isPython) fixBox.checked = false;
-  }
+  if (fixWrap) fixWrap.title = "";
+  if (fixBox) fixBox.disabled = false;
   const sel = $("#editor-language");
   if (sel && sel.value !== lang) sel.value = lang;
   window.SecureCCSemanticLint?.schedule();
@@ -103,7 +100,7 @@ async function loadSourceIntoEditor(path) {
   $("#editor-path").textContent = data.path || path;
   state.selectedPath = data.path || path;
   if (data.language) setEditorLanguage(data.language);
-  else if (data.name?.endsWith(".py")) setEditorLanguage("python");
+  else if (data.name?.endsWith(".java")) setEditorLanguage("java");
   else if (/\.(cpp|cc|cxx)$/i.test(data.name || "")) setEditorLanguage("cpp");
   else setEditorLanguage("c");
   window.SecureCCEditor?.refreshLineNumbers();

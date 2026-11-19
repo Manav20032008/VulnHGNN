@@ -1,5 +1,5 @@
 .app-shell-workbench {
-  --workbench-left-w: min(46vw, 540px);
+  --workbench-left-w: min(50vw, 620px);
 }
 
 .workbench-main {
@@ -13,20 +13,136 @@
 .workbench {
   display: grid;
   grid-template-columns: var(--workbench-left-w) 1fr;
+  grid-template-rows: 1fr;
   flex: 1;
   min-height: 0;
-  height: 100vh;
+  height: calc(100vh - 0px);
+}
+
+.workbench-welcome {
+  padding: 1.25rem 1.5rem;
+  overflow: auto;
+  flex: 1;
+}
+
+.graph-search {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text);
+  min-width: 140px;
 }
 
 .workbench-left {
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--border);
-  background: var(--bg-elevated);
+  background: var(--bg-panel);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workbench-left .workbench-editor-header {
+  flex-shrink: 0;
+}
+
+.workbench-editor-toolbar {
+  flex-shrink: 0;
+  padding: 0.45rem 0.75rem;
+}
+
+.toolbar-single-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.4rem 0.55rem;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.toolbar-cluster {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem 0.55rem;
+  min-width: 0;
+}
+
+.toolbar-cluster-file {
+  flex: 1 1 120px;
+  min-width: 0;
+  max-width: 34%;
+}
+
+.editor-filename {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+  color: var(--text);
+}
+
+.editor-unsaved-badge {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.12rem 0.4rem;
+  border-radius: 999px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.toolbar-cluster-mid {
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  justify-content: center;
+}
+
+.toggle-compact .toggle-switch-label {
+  font-size: 0.7rem;
+}
+
+.toggle-compact .toggle-switch-ui {
+  width: 1.75rem;
+  height: 1rem;
+}
+
+.toolbar-cluster-analyze {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+#editor-analysis-chip {
+  display: none !important;
+}
+
+.workbench-lang-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.workbench-left .live-kpi-strip,
+.workbench-left .live-preview-strip-compact {
+  flex-shrink: 0;
+}
+
+#monaco-host {
+  flex: 1;
   min-height: 0;
 }
 
-.workbench-editor-header {
+.workbench-editor-header.toolbar-single-row {
+  padding: 0.45rem 0.75rem;
+}
+
+.workbench-editor-header:not(.toolbar-single-row) {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -64,11 +180,13 @@
 }
 
 .editor-code-wrap {
-  flex: 1;
+  flex: 1 1 auto;
   display: flex;
+  flex-direction: column;
   min-height: 0;
   overflow: hidden;
   background: var(--editor-bg);
+  padding: 0.35rem 0.5rem 0.5rem;
 }
 
 .editor-code-wrap:focus-within {
@@ -288,10 +406,57 @@
 }
 
 .workbench-right {
-  overflow-y: auto;
-  padding: 1rem 1.25rem 2rem;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
   position: relative;
   min-height: 0;
+  background: var(--bg);
+}
+
+.workbench-dashboard {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0.75rem 1rem 0.5rem;
+}
+
+.workbench-tab-panels {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.workbench-tab-panels.tab-panels {
+  min-height: 0;
+}
+
+#panel-chat.tab-panel.active {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: min(72vh, 38rem);
+  height: auto;
+  padding-top: 0.15rem;
+}
+
+.dashboard-live-only .dash-header-results,
+.dashboard-live-only .metrics-results,
+.dashboard-live-only .intel-tabs {
+  display: none !important;
+}
+
+.dashboard-live-only.workbench-dashboard {
+  padding-top: 0.35rem;
+}
+
+.intel-groups,
+.intel-tabs {
+  flex-shrink: 0;
 }
 
 .workbench-loading {
@@ -303,7 +468,7 @@
   align-items: center;
   justify-content: center;
   gap: 0.75rem;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--overlay);
 }
 
 .workbench-empty {
@@ -452,11 +617,30 @@
 
   .workbench {
     grid-template-columns: 1fr;
-    height: auto;
+    grid-template-rows: minmax(50vh, auto) minmax(40vh, auto) auto;
+    height: 100vh;
     min-height: 100vh;
+    overflow: hidden;
   }
 
   .workbench-left {
-    min-height: 40vh;
+    min-height: 50vh;
+    max-height: 55vh;
+  }
+
+  .workbench-right {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .app-shell-workbench {
+    --workbench-left-w: 1fr;
+  }
+}
+
+@media (max-width: 1100px) {
+  .workbench {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(50vh, 1fr) minmax(35vh, 45vh) auto;
   }
 }

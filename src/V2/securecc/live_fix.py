@@ -15,7 +15,7 @@ def apply_live_fixes(source: str, *, language: str) -> tuple[str, list[dict[str,
     - Required includes when those edits apply
     """
     language = (language or "c").lower()
-    if language == "python":
+    if language == "java":
         return source, []
 
     applied: list[dict[str, Any]] = []

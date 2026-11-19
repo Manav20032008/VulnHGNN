@@ -2,12 +2,13 @@ window.SecureCCSemanticLint = (function () {
   const DEBOUNCE_MS = 450;
   let timer = null;
   let abort = null;
+  let lintRequestSeq = 0;
 
   const SOURCE_LABELS = {
     heuristic: "Quick check",
     compiler: "Compiler",
     semantic: "Naming",
-    python: "Python",
+    java: "Java",
   };
 
   function $(sel) {
@@ -94,29 +95,32 @@ window.SecureCCSemanticLint = (function () {
     return parts.length ? parts.join(" · ") : "All clear";
   }
 
+  function getSource() {
+    return window.SecureCCMonaco?.getValue?.() ?? $("#source-editor")?.value ?? "";
+  }
+
+  function setSource(v) {
+    window.SecureCCMonaco?.setValue?.(v);
+    const ta = $("#source-editor");
+    if (ta) ta.value = v;
+  }
+
   function render(diagnostics, stats, partial) {
-    const panel = $("#semantic-lint-panel");
     const list = $("#semantic-lint-list");
     const meta = $("#semantic-lint-meta");
-    if (!panel || !list) return;
-
-    panel.classList.remove("hidden");
+    if (!list) return;
 
     const count = diagnostics?.length || 0;
     if (meta) {
-      const summary = count ? summaryMeta(diagnostics) : "All clear";
-      const extra = partial ? " (partial)" : "";
+      const summary = count ? summaryMeta(diagnostics) : "";
+      const extra = partial && count ? " (partial)" : "";
       meta.textContent = summary + extra;
       meta.classList.toggle("live-issues-ok", !count);
       meta.classList.toggle("live-issues-warn", count > 0);
     }
 
     if (!count) {
-      list.innerHTML = `<div class="live-issues-empty">
-        <span class="live-issues-empty-icon" aria-hidden="true">✓</span>
-        <p>No problems spotted in your code right now.</p>
-        <p class="muted small">Click <strong>Analyze</strong> for a full security scan.</p>
-      </div>`;
+      list.innerHTML = "";
       return;
     }
 
@@ -172,34 +176,25 @@ window.SecureCCSemanticLint = (function () {
     list.querySelectorAll(".semantic-lint-item").forEach((btn) => {
       btn.addEventListener("click", () => {
         const line = parseInt(btn.dataset.line, 10);
-        const editor = $("#source-editor");
-        if (!editor || !line) return;
-        const lines = editor.value.split("\n");
-        let pos = 0;
-        for (let i = 0; i < line - 1 && i < lines.length; i++) {
-          pos += lines[i].length + 1;
-        }
-        editor.focus();
-        editor.setSelectionRange(pos, pos + (lines[line - 1]?.length || 0));
-        window.SecureCCEditor?.highlightLine(line);
+        if (!line) return;
+        window.SecureCCMonaco?.highlightLine?.(line);
+        window.SecureCCEditor?.highlightLine?.(line);
       });
     });
   }
 
   async function runLint() {
-    const editor = $("#source-editor");
-    if (!editor) {
-      render([], {}, false);
-      return;
-    }
-    const source = editor.value;
+    const source = getSource();
     if (!source.trim()) {
+      const empty = { diagnostics: [], stats: { elapsed_ms: 0 }, partial: false };
       render([], {}, false);
+      window.SecureCCLiveViz?.onLintResult?.(empty);
       return;
     }
 
     if (abort) abort.abort();
     abort = new AbortController();
+    const reqSeq = ++lintRequestSeq;
 
     try {
       const res = await fetch("/api/lint/live", {
@@ -212,8 +207,10 @@ window.SecureCCSemanticLint = (function () {
         }),
       });
       const data = await res.json();
+      if (reqSeq !== lintRequestSeq) return;
       if (!res.ok) throw new Error(data.error || "lint failed");
       render(data.diagnostics || [], data.stats || {}, data.partial);
+      window.SecureCCLiveViz?.onLintResult?.(data);
     } catch (err) {
       if (err.name === "AbortError") return;
       render([], { error: err.message }, false);
@@ -226,15 +223,13 @@ window.SecureCCSemanticLint = (function () {
   }
 
   async function applySafeFixes() {
-    const editor = $("#source-editor");
     const lang = window.SecureCCApp?.getEditorLanguage?.() || "c";
-    if (!editor) return;
     try {
       const res = await fetch("/api/lint/live/apply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          source: editor.value,
+          source: getSource(),
           language: lang,
         }),
       });
@@ -245,8 +240,7 @@ window.SecureCCSemanticLint = (function () {
         return;
       }
       if (data.source != null && data.applied_count > 0) {
-        editor.value = data.source;
-        window.SecureCCEditor?.refreshLineNumbers();
+        setSource(data.source);
         schedule();
         const summary = (data.applied || [])
           .slice(0, 3)
@@ -266,7 +260,6 @@ window.SecureCCSemanticLint = (function () {
   }
 
   document.addEventListener("DOMContentLoaded", () => {
-    $("#source-editor")?.addEventListener("input", schedule);
     $("#editor-language")?.addEventListener("change", schedule);
     $("#semantic-lint-apply")?.addEventListener("click", applySafeFixes);
     schedule();

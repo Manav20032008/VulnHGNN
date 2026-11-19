@@ -8,7 +8,7 @@ from ..aai_security.audit import append_audit_event, default_log_path
 from ..aai_security.guards import detect_code_poisoning, detect_prompt_threats
 from ..aai_security.policy import DEFAULT_AAI_POLICY, evaluate_tool_call
 from ..languages import language_id_from_suffix
-from ..pipeline_stages import build_engine_pipeline_stages, build_python_pipeline_stages
+from ..pipeline_stages import build_engine_pipeline_stages
 from ..scan_merge import build_display_scan, should_gap_fill_merge
 from .ai_source_review import ai_source_review
 from .engine_snapshot import collect_engine_snapshot
@@ -39,13 +39,13 @@ def _build_session_pipeline(
 ) -> dict[str, Any]:
     heal = _heal_from_outputs(tool_outputs)
 
-    if snapshot and snapshot.get("language") == "python":
-        stages = build_python_pipeline_stages(snapshot["analysis"], snapshot["scan"])
-    elif snapshot:
+    if snapshot:
         stages = build_engine_pipeline_stages(
             snapshot["analysis"],
             snapshot["scan"],
             heal=heal,
+            diagnostics=tool_outputs.get("diagnose"),
+            learn=tool_outputs.get("learn"),
         )
     else:
         empty_scan: dict[str, Any] = {

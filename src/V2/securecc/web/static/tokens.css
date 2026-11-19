@@ -1,0 +1,81 @@
+/* Default: premium light (professor requirement) */
+:root,
+[data-theme="light"] {
+  --bg: #f8fafc;
+  --bg-secondary: #f1f5f9;
+  --bg-sidebar: #f1f5f9;
+  --bg-elevated: #ffffff;
+  --bg-card: #ffffff;
+  --bg-panel: #ffffff;
+  --border: #e2e8f0;
+  --border-subtle: #f1f5f9;
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --accent: #2563eb;
+  --accent-bright: #3b82f6;
+  --accent-dim: rgba(37, 99, 235, 0.1);
+  --accent-tab: #eff6ff;
+  --cyan: #0891b2;
+  --purple: #7c3aed;
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --critical: #dc2626;
+  --high: #ea580c;
+  --editor-bg: #fafbfc;
+  --editor-gutter: #f1f5f9;
+  --graph-canvas: #f8fafc;
+  --pipeline-surface: linear-gradient(180deg, #f8fafc 0%, #eff6ff 100%);
+  --pipeline-node-fill: #ffffff;
+  --pipeline-node-stroke: #cbd5e1;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 4px 16px rgba(15, 23, 42, 0.08);
+  --overlay: rgba(248, 250, 252, 0.92);
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+  --sans: "DM Sans", system-ui, sans-serif;
+  --radius: 10px;
+  --radius-sm: 6px;
+  --sidebar-w: 292px;
+  --transition: 0.18s ease;
+  --drawer-h: 200px;
+}
+
+[data-theme="dark"] {
+  --bg: #0b1020;
+  --bg-secondary: #111827;
+  --bg-sidebar: #111827;
+  --bg-elevated: #151f33;
+  --bg-card: #151f33;
+  --bg-panel: #151f33;
+  --border: #263449;
+  --border-subtle: #1e2a3d;
+  --text: #f8fafc;
+  --text-muted: #94a3b8;
+  --accent: #3b82f6;
+  --accent-bright: #60a5fa;
+  --accent-dim: rgba(59, 130, 246, 0.15);
+  --accent-tab: rgba(59, 130, 246, 0.12);
+  --cyan: #22d3ee;
+  --purple: #a78bfa;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --critical: #ef4444;
+  --high: #f97316;
+  --editor-bg: #0d1117;
+  --editor-gutter: #161b26;
+  --graph-canvas: #0d1117;
+  --pipeline-surface: linear-gradient(180deg, #111827 0%, #151f33 100%);
+  --pipeline-node-fill: #1e293b;
+  --pipeline-node-stroke: #334155;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 24px rgba(0, 0, 0, 0.45);
+  --overlay: rgba(11, 16, 32, 0.88);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
