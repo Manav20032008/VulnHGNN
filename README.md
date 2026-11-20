@@ -29,6 +29,32 @@ Open **http://127.0.0.1:5050** — load a sample from **Project explorer** (e.g.
 
 ---
 
+## Docker (UI + API in one container)
+
+The image installs the Python backend, CWE pipeline, and Flask-served workbench static assets. Port **5050** is the web UI and REST API.
+
+```bash
+docker build -t vulnhgnn-securecc:2.0 .
+
+# Optional Groq (copy .env.example to .env first)
+docker run --rm -p 5050:5050 --env-file .env vulnhgnn-securecc:2.0
+
+# Or pass the key directly
+docker run --rm -p 5050:5050 -e GROQ_API_KEY=gsk_... vulnhgnn-securecc:2.0
+```
+
+Open **http://localhost:5050**. Uploads and build artifacts are written under `/app/build` inside the container.
+
+Environment variables:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `SECURECC_WEB_HOST` | `0.0.0.0` | Bind address (use `0.0.0.0` in Docker) |
+| `SECURECC_WEB_PORT` | `5050` | HTTP port |
+| `GROQ_API_KEY` | — | Optional AI chat, adjudication, heal |
+
+---
+
 ## What you can do
 
 | Capability | CLI | Web workbench |

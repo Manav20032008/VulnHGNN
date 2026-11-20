@@ -645,8 +645,22 @@ table.data td.mono {
 }
 
 .aai-log {
-  max-height: 280px;
+  max-height: min(280px, 32vh);
   font-size: 0.68rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+#panel-aai .table-wrap,
+#panel-agent .agent-timeline,
+#panel-agent .agent-artifacts-panel {
+  max-height: min(360px, 40vh);
+  overflow: auto;
+}
+
+#panel-raw #raw-json {
+  max-height: min(70vh, 520px);
 }
 
 .badge-block {

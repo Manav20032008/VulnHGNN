@@ -1,5 +1,15 @@
 .app-shell-workbench {
   --workbench-left-w: min(50vw, 620px);
+  height: 100vh;
+  max-height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+body:has(.app-shell-workbench) {
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
 }
 
 .workbench-main {
@@ -7,7 +17,9 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  max-height: 100vh;
+  min-height: 0;
 }
 
 .workbench {
@@ -427,21 +439,31 @@
 .workbench-tab-panels {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .workbench-tab-panels.tab-panels {
   min-height: 0;
 }
 
-#panel-chat.tab-panel.active {
+.workbench-tab-panels > .tab-panel.active {
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-height: min(72vh, 38rem);
-  height: auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+#panel-chat.tab-panel.active {
   padding-top: 0.15rem;
+}
+
+#panel-live.tab-panel.active {
+  overflow-y: auto;
 }
 
 .dashboard-live-only .dash-header-results,
